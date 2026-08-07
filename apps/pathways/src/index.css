@@ -379,6 +379,7 @@ table.exec tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transp
 .seg button.on.PartialPass { background: rgba(245,158,11,.25); color: #fbbf24; }
 .seg button.on.NotApplicable { background: rgba(148,163,184,.25); color: #e2e8f0; }
 .seg button.on.Blocked { background: rgba(168,85,247,.25); color: #d8b4fe; }
+.seg button.on.Halted { background: rgba(251,146,60,.25); color: #fdba74; }
 .req-warn { color: #fda4af; font-size: 12px; margin-top: 6px; }
 
 .member-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid rgba(120,140,200,.12); font-size: 13px; }
@@ -903,3 +904,10 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
 .nattr-row { display: flex; gap: 6px; font-size: 0.78em; line-height: 1.35; opacity: 0.85; }
 .nattr-row .k { font-weight: 600; white-space: nowrap; }
 .nattr-row .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- issues (pre-bug findings) + Halted status ---- */
+.st-Halted { background: rgba(251,146,60,.18); color: #fdba74; }
+.iss-open { background: rgba(251,191,36,.18); color: #fbbf24; }
+.iss-validating { background: rgba(96,165,250,.18); color: #93c5fd; }
+.iss-resolved { background: rgba(34,197,94,.18); color: #4ade80; }
+.iss-escalated { background: rgba(239,68,68,.18); color: #f87171; }

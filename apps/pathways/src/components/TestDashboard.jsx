@@ -1,13 +1,66 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { useStore, uid, STATUS_OPTIONS, REQUIREMENT_KINDS, reqMet } from '../store'
+import { useStore, uid, STATUS_OPTIONS, REQUIREMENT_KINDS, reqMet, successorsOf } from '../store'
 import { exportJSON, exportCSV, exportXLSX, exportPDF, exportWord } from '../utils/exporters'
 import AttachmentManager from './AttachmentManager'
 import ImportWizard from './ImportWizard'
 import { BugModal, BugRow, downloadRunReport, reportBugs } from './Bugs'
+import { IssueModal, IssuesSection, issueCls } from './Issues'
 
 const stCls = (st) => 'status-chip st-' + (st || '').replace(/\s/g, '')
 const reqLabel = (kind) => REQUIREMENT_KINDS.find((r) => r.kind === kind)?.label || kind
 
+
+
+// ---- cross-case step dependencies: pick predecessor steps (any case); successors derive ----
+function StepDepsEditor({ tc, st }) {
+  const s = useStore()
+  const [pCase, setPCase] = useState(tc.id)
+  const [pStep, setPStep] = useState('')
+  const preds = st.preds || []
+  const srcCase = s.cases.find((c) => c.id === pCase)
+  const succs = successorsOf(s.cases, tc.id, st.id)
+  const setPreds = (next) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, preds: next } : x)) })
+  const label = (p) => {
+    const c = s.cases.find((x) => x.id === p.caseId)
+    const i = c?.steps.findIndex((x) => x.id === p.stepId)
+    return c ? `${c.id === tc.id ? 'this case' : c.name} · step ${i >= 0 ? i + 1 : '?'}` : 'missing'
+  }
+  return (
+    <div className="field"><label>⛓ Dependencies — predecessors & successors (cross-case)</label>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 5 }}>
+        {preds.length === 0 && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>No predecessors — this step can execute any time.</span>}
+        {preds.map((p, i) => (
+          <span key={i} className="req-badge" title="Predecessor — must pass (with no open issue) before this step unlocks in a run">
+            ⬅ {label(p)} <a style={{ cursor: 'pointer', marginLeft: 3 }} onClick={() => setPreds(preds.filter((_, j) => j !== i))}>✕</a>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 5 }}>
+        <select value={pCase} style={{ flex: 1 }} onChange={(e) => { setPCase(e.target.value); setPStep('') }}>
+          {s.cases.map((c) => <option key={c.id} value={c.id}>{c.id === tc.id ? '(this case)' : c.name}</option>)}
+        </select>
+        <select value={pStep} style={{ flex: 1 }} onChange={(e) => setPStep(e.target.value)}>
+          <option value="">predecessor step…</option>
+          {(srcCase?.steps || []).filter((x) => x.id !== st.id).map((x, i) => (
+            <option key={x.id} value={x.id}>step {i + 1} — {(x.action || '(no action)').slice(0, 40)}</option>
+          ))}
+        </select>
+        <button className="btn small" disabled={!pStep || preds.some((p) => p.stepId === pStep)}
+          onClick={() => { setPreds([...preds, { caseId: pCase, stepId: pStep }]); setPStep('') }}>＋ Add</button>
+      </div>
+      {succs.length > 0 && (
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+          {succs.map((x, i) => (
+            <span key={i} className="req-badge met" title="Successor — that step waits for this one (and any open issue here) before it can execute">➡ {x.label}</span>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 4 }}>
+        During execution a step stays locked 🔒 until every predecessor has passed and carries no open issue.
+      </div>
+    </div>
+  )
+}
 
 function ExecutionModal({ tc, suite, onClose }) {
   const s = useStore()
@@ -275,6 +328,7 @@ export default function TestDashboard() {
   const [importing, setImporting] = useState(false)
   const [expandedStep, setExpandedStep] = useState(null)
   const [bugCtx, setBugCtx] = useState(null)
+  const [issueCtx, setIssueCtx] = useState(null)
   // collapsible side columns — collapse to a thin rail to maximize the workspace
   const [collapsedCols, setCollapsedCols] = useState({ suites: false, cases: false })
   const railTag = (key, label) => (
@@ -379,9 +433,17 @@ export default function TestDashboard() {
           <button className="btn small" disabled={!plan || !plan.caseIds.length}
             title="Preview this route on the workflow — read-only, nothing is recorded"
             onClick={() => s.startPlanPreview(plan.id)}>👁 Preview</button>
-          <button className="btn small primary" disabled={!plan || !plan.caseIds.length || !!s.planRun}
-            title={s.planRun ? 'A plan is already running' : 'Execute this planned route'}
-            onClick={() => s.startPlanRun(plan.id)}>▶ Run</button></div>
+          {plan && s.pausedRuns.some((p) => p.planId === plan.id) ? (<>
+            <button className="btn small primary" disabled={!!s.planRun}
+              title="Resume the paused (halted) run exactly where it stopped — partially-marked steps included"
+              onClick={() => s.resumePlanRun(plan.id)}>⏵ Resume</button>
+            <button className="btn small" title="Discard the paused run (nothing further is recorded)"
+              onClick={() => s.discardPausedRun(plan.id)}>✕</button>
+          </>) : (
+            <button className="btn small primary" disabled={!plan || !plan.caseIds.length || !!s.planRun}
+              title={s.planRun ? 'A plan is already running' : 'Execute this planned route'}
+              onClick={() => s.startPlanRun(plan.id)}>▶ Run</button>
+          )}</div>
         <div className="col-body">
           {!plan && <div className="empty">Select or create a plan.</div>}
           {plan && (<>
@@ -526,6 +588,9 @@ export default function TestDashboard() {
                     <button className="btn small" style={{ marginTop: 3 }}
                       title={`Map this step to diagram nodes / paths (${(st.targetIds || []).length} mapped) — the mapped elements highlight while this step executes`}
                       onClick={() => s.startStepMapping(tc.id, st.id)}>🎯{(st.targetIds || []).length > 0 ? <small>{st.targetIds.length}</small> : ''}</button>
+                    {((st.preds || []).length > 0 || successorsOf(s.cases, tc.id, st.id).length > 0) && (
+                      <span className="req-badge" style={{ marginTop: 5 }} title={`${(st.preds || []).length} predecessor(s) · ${successorsOf(s.cases, tc.id, st.id).length} successor(s)`}>⛓</span>
+                    )}
                     <button className="btn small" style={{ marginTop: 3 }} onClick={() => s.updateCase(tc.id, { steps: tc.steps.filter((x) => x.id !== st.id) })}>✕</button>
                   </div>
                   {(st.requirements || []).length > 0 && expandedStep !== st.id && (
@@ -547,6 +612,7 @@ export default function TestDashboard() {
                         ))}
                         {suiteReqKinds.length === 0 && <div style={{ color: 'var(--text-dim)' }}>No requirement types defined on this suite — add them in the suite panel (left).</div>}
                       </div>
+                      <StepDepsEditor tc={tc} st={st} />
                       <AttachmentManager compact items={st.attachments || []}
                         onChange={(items) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, attachments: items } : x)) })} />
                     </div>
@@ -561,6 +627,14 @@ export default function TestDashboard() {
             <div className="section">
               <AttachmentManager label="Case Attachments" items={tc.attachments || []}
                 onChange={(items) => s.updateCase(tc.id, { attachments: items })} />
+            </div>
+
+            <div className="section">
+              <h4>⚠ Issues ({s.issues.filter((i) => i.caseId === tc.id).length})
+                <button className="btn small" style={{ marginLeft: 'auto' }}
+                  title="Raise an issue on this case (pre-bug) — optionally reassign it to another user for validation"
+                  onClick={() => setIssueCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>＋ New issue</button></h4>
+              <IssuesSection caseId={tc.id} />
             </div>
 
             <div className="section">
@@ -642,6 +716,7 @@ export default function TestDashboard() {
       </div>
       {running && tc && <ExecutionModal tc={tc} suite={suite} onClose={() => setRunning(false)} />}
       {bugCtx && <BugModal context={bugCtx} onClose={() => setBugCtx(null)} />}
+      {issueCtx && <IssueModal context={issueCtx} onClose={() => setIssueCtx(null)} />}
       {importing && <ImportWizard defaultSuiteId={suiteId} onClose={(newSuiteId) => { setImporting(false); if (newSuiteId) setSuiteId(newSuiteId) }} />}
     </div>
   )

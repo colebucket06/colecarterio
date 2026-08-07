@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useReactFlow, useViewport } from '@xyflow/react'
-import { useStore, STATUS_OPTIONS, REQUIREMENT_KINDS, reqMet, casesLinkedTo } from '../store'
+import { useStore, STATUS_OPTIONS, REQUIREMENT_KINDS, reqMet, casesLinkedTo, predState } from '../store'
 import AttachmentManager from './AttachmentManager'
 import { BugModal } from './Bugs'
+import { IssueModal } from './Issues'
 
 const stCls = (st) => 'status-chip st-' + (st || '').replace(/\s/g, '')
 const reqLabel = (kind) => REQUIREMENT_KINDS.find((r) => r.kind === kind)?.label || kind
@@ -183,9 +184,18 @@ export default function PlanRunner() {
   const [showBranches, setShowBranches] = useState(false)
   const [promptedCase, setPromptedCase] = useState(null)
   const [bugCtx, setBugCtx] = useState(null)
+  const [issueCtx, setIssueCtx] = useState(null)
 
   useEffect(() => {
     if (tc) {
+      // resumed run: restore the partially-marked steps captured at pause time
+      const part = useStore.getState().resumePartial
+      if (part && part.caseId === tc.id) {
+        setResults(part.results || [])
+        setComment(part.comment || ''); setOverride('')
+        useStore.setState({ resumePartial: null })
+        return
+      }
       setResults(tc.steps.map((st) => ({ stepId: st.id, status: 'Pass', actual: '', returnValue: '', evidence: [] })))
       setComment(''); setOverride('')
     }
@@ -212,9 +222,20 @@ export default function PlanRunner() {
   const suiteReqKinds = (suite?.requirementTypes || []).map((r) => r.kind)
   const stepReqs = (st) => (st.requirements || []).filter((k) => suiteReqKinds.includes(k) || REQUIREMENT_KINDS.some((r) => r.kind === k))
 
+  // hard-gated dependencies: a step whose predecessors (possibly in other cases)
+  // haven't passed — or carry an open issue — is locked and reports Blocked
+  const lockFor = (st, i) => {
+    const bad = (st.preds || [])
+      .map((p) => predState(s.cases, s.issues, p, { caseId: tc.id, results, index: i }))
+      .filter((x) => !x.ok)
+    return bad.length ? bad : null
+  }
+  const locks = tc.steps.map((st, i) => lockFor(st, i))
+  const effStatus = (i) => (locks[i] ? 'Blocked' : results[i]?.status)
   const computed = (() => {
-    const sts = results.map((r) => r.status)
+    const sts = results.map((r, i) => effStatus(i))
     if (sts.includes('Fail')) return 'Fail'
+    if (sts.includes('Halted')) return 'Halted'
     if (sts.includes('Blocked')) return 'Blocked'
     if (sts.includes('Partial Pass')) return 'Partial Pass'
     if (sts.length && sts.every((x) => x === 'Not Applicable')) return 'Not Applicable'
@@ -232,7 +253,7 @@ export default function PlanRunner() {
     s.completePlanCase({
       executedAt: new Date().toISOString(), executedBy: s.currentUser.name,
       assignedTo: tc.assignedTo || null, planId: run.planId,
-      stepResults: results, overallStatus: overall, comment: comment.trim(),
+      stepResults: results.map((r, i) => ({ ...r, status: effStatus(i) })), overallStatus: overall, comment: comment.trim(),
     })
   }
 
@@ -240,7 +261,10 @@ export default function PlanRunner() {
     <>
       <aside className="props-panel runner-panel">
         <h3>🧭 Plan Run: {plan?.name}
-          <button className="btn small danger" style={{ marginLeft: 'auto' }} onClick={() => s.endPlanRun()}>Abort</button></h3>
+          <button className="btn small" style={{ marginLeft: 'auto' }}
+            title="Pause (halt) this run — everything marked so far is kept and the run resumes later from this exact spot"
+            onClick={() => s.pausePlanRun({ caseId: tc.id, results, comment })}>⏸ Pause</button>
+          <button className="btn small danger" onClick={() => s.endPlanRun()}>Abort</button></h3>
         <div className="run-progress">
           Case <b>{run.caseIndex + 1}</b> of <b>{run.queue.length}</b>
           {run.results.map((r) => <span key={r.caseId} className={stCls(r.status)} title={s.cases.find((c) => c.id === r.caseId)?.name}>{r.status[0]}</span>)}
@@ -265,7 +289,8 @@ export default function PlanRunner() {
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <span className="num">{i + 1}</span>
                 <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 700 : 400 }}>{st.action || '(no action)'}</span>
-                {!active && <span className={stCls(r.status)}>{r.status}</span>}
+                {locks[i] && <span title={'Locked by: ' + locks[i].map((b) => `${b.label} (${b.reason})`).join('; ')}>🔒</span>}
+                {!active && <span className={stCls(effStatus(i))}>{effStatus(i)}</span>}
               </div>
               {active && (
                 <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
@@ -273,10 +298,15 @@ export default function PlanRunner() {
                   {stepReqs(st).map((k) => (
                     <span key={k} className={'req-badge' + (reqMet(k, r) ? ' met' : '')}>{reqMet(k, r) ? '✓' : '○'} {reqLabel(k)}</span>
                   ))}
-                  <div style={{ marginTop: 6 }}>
+                  {locks[i] && (
+                    <div className="req-warn" style={{ marginTop: 6 }}>
+                      🔒 Waiting on predecessor{locks[i].length === 1 ? '' : 's'}: {locks[i].map((b) => `${b.label} — ${b.reason}`).join('; ')}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 6, opacity: locks[i] ? 0.45 : 1 }}>
                     <span className="seg">
                       {STATUS_OPTIONS.map((opt) => (
-                        <button key={opt} className={(r.status === opt ? 'on ' : '') + opt.replace(/\s/g, '')}
+                        <button key={opt} disabled={!!locks[i]} className={(r.status === opt ? 'on ' : '') + opt.replace(/\s/g, '')}
                           onClick={() => setResults(results.map((x, j) => (j === i ? { ...x, status: opt } : x)))}>{opt.split(' ')[0]}</button>
                       ))}
                     </span>
@@ -291,6 +321,10 @@ export default function PlanRunner() {
                     onChange={(items) => setResults(results.map((x, j) => (j === i ? { ...x, evidence: items } : x)))} />
                   <div style={{ display: 'flex', gap: 6, marginTop: 7 }}>
                     {!atEnd && <button className="btn small primary" onClick={() => s.setPlanStep(i + 1)}>Next step →</button>}
+                    <button className="btn small" title="Raise an issue on this step (pre-bug) — optionally reassign it for validation; the case keeps running"
+                      onClick={() => setIssueCtx({ caseId: tc.id, stepId: st.id,
+                        defaultTitle: `Step ${i + 1} — ${(st.action || '').slice(0, 60)}`,
+                        defaultDescription: `Expected: ${st.expected || '—'}\nActual: ${r.actual || '—'}` })}>⚠ Issue</button>
                     {r.status === 'Fail' && (
                       <button className="btn small danger" onClick={() => setBugCtx({ caseId: tc.id, stepId: st.id,
                         defaultTitle: `Step ${i + 1} failed — ${(st.action || '').slice(0, 60)}`,
@@ -316,6 +350,9 @@ export default function PlanRunner() {
             placeholder={overall !== 'Pass' ? 'Comment required (status is not Pass)…' : 'Execution comment (optional)'} />
           {needsComment && <div className="req-warn">⚠ Comment required — status is not Pass.</div>}
           {unmet.length > 0 && <div className="req-warn">⚠ Unmet: {unmet.map((u) => `step ${u.step} ${reqLabel(u.kind)}`).join('; ')}</div>}
+          <button className="btn small" style={{ width: '100%', marginTop: 7 }}
+            title="Raise an issue against the whole case (pre-bug) and optionally reassign it for validation"
+            onClick={() => setIssueCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>⚠ Raise issue on this case</button>
           {overall === 'Fail' && (
             <button className="btn small danger" style={{ width: '100%', marginTop: 7 }}
               onClick={() => setBugCtx({ caseId: tc.id,
@@ -336,6 +373,7 @@ export default function PlanRunner() {
         <BranchPrompt branches={branches} diagram={diagram} currentCase={tc} onClose={() => setShowBranches(false)} />
       )}
       {bugCtx && <BugModal context={bugCtx} onClose={() => setBugCtx(null)} />}
+      {issueCtx && <IssueModal context={issueCtx} onClose={() => setIssueCtx(null)} />}
     </>
   )
 }

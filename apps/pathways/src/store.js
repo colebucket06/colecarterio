@@ -23,7 +23,47 @@ export const NODE_TEMPLATES = [
   { type: 'section',    label: 'Section',    icon: '▭',  color: '#4f7cff', desc: 'Semi-transparent grouping backdrop with its own attribution' },
 ]
 
-export const STATUS_OPTIONS = ['Pass', 'Fail', 'Partial Pass', 'Not Applicable', 'Blocked']
+export const STATUS_OPTIONS = ['Pass', 'Fail', 'Partial Pass', 'Not Applicable', 'Blocked', 'Halted']
+
+// ---- cross-case step dependencies ----
+// step.preds = [{ caseId, stepId }] — predecessors that must complete (pass-ish,
+// with no open issue) before the step may execute. Successors are derived.
+const PRED_OK = ['Pass', 'Partial Pass', 'Not Applicable']
+export const lastStepStatus = (cases, caseId, stepId) => {
+  const c = cases.find((x) => x.id === caseId)
+  for (const ex of c?.executions || []) {
+    const r = (ex.stepResults || []).find((sr) => sr.stepId === stepId)
+    if (r) return r.status
+  }
+  return null
+}
+export const openIssueOn = (issues, stepId) =>
+  issues.some((i) => i.stepId === stepId && (i.status === 'open' || i.status === 'validating'))
+// evaluate one predecessor. inRun = { caseId, results, index } for the case being executed:
+// same-case predecessors are judged by this run's marks (and must be earlier steps).
+export const predState = (cases, issues, pred, inRun) => {
+  const c = cases.find((x) => x.id === pred.caseId)
+  const si = c?.steps.findIndex((x) => x.id === pred.stepId)
+  const label = c ? `${c.name} · step ${si >= 0 ? si + 1 : '?'}` : 'missing step'
+  if (!c || si < 0) return { ok: true, label, reason: 'reference no longer exists' }
+  let st = null
+  if (inRun && inRun.caseId === pred.caseId) {
+    if (si >= inRun.index) return { ok: false, label, reason: 'later step in this case' }
+    st = inRun.results.find((r) => r.stepId === pred.stepId)?.status || null
+  } else st = lastStepStatus(cases, pred.caseId, pred.stepId)
+  if (!st) return { ok: false, label, reason: 'not executed yet' }
+  if (!PRED_OK.includes(st)) return { ok: false, label, reason: `status ${st}` }
+  if (openIssueOn(issues, pred.stepId)) return { ok: false, label, reason: 'open issue awaiting validation' }
+  return { ok: true, label }
+}
+export const successorsOf = (cases, caseId, stepId) => {
+  const out = []
+  cases.forEach((c) => c.steps.forEach((st, i) => {
+    if ((st.preds || []).some((p) => p.caseId === caseId && p.stepId === stepId))
+      out.push({ caseId: c.id, stepId: st.id, label: `${c.name} · step ${i + 1}` })
+  }))
+  return out
+}
 
 // password policy: 16+ chars with upper & lower case, a digit, and a special character
 export const validPassword = (pw) => typeof pw === 'string' && pw.length >= 16
@@ -1225,6 +1265,38 @@ export const useStore = create((set, get) => ({
     get().log('test', 'plan-run', `Started plan "${plan.name}" (${plan.caseIds.length} cases)`, planId)
   },
   setPlanStep: (stepIndex) => set((s) => ({ planRun: s.planRun ? { ...s.planRun, stepIndex } : null })),
+  // ---- pause / resume: an in-progress run (including partially-marked steps of the
+  // current case) can be halted and picked up later exactly where it stopped ----
+  pausedRuns: [], // [{ planId, run, partial: { caseId, results, comment } | null, pausedAt, by }]
+  resumePartial: null, // transient — PlanRunner consumes this after a resume
+  pausePlanRun: (partial) => {
+    const r = get().planRun
+    if (!r) return
+    set((s) => ({
+      planRun: null, resumePartial: null,
+      pausedRuns: [...s.pausedRuns.filter((p) => p.planId !== r.planId),
+        { planId: r.planId, run: r, partial: partial || null, pausedAt: now(), by: get().currentUser.name }],
+    }))
+    const plan = get().plans.find((p) => p.id === r.planId)
+    get().log('test', 'plan-run', `⏸ Paused plan run "${plan?.name}" at case ${r.caseIndex + 1} of ${r.queue.length}`, r.planId)
+  },
+  resumePlanRun: (planId) => {
+    const p = get().pausedRuns.find((x) => x.planId === planId)
+    if (!p || get().planRun) return
+    const cur = get().cases.find((c) => c.id === p.run.queue[p.run.caseIndex])
+    const diagId = cur?.links[0]?.diagramId
+    set((s) => ({
+      planRun: p.run, resumePartial: p.partial,
+      pausedRuns: s.pausedRuns.filter((x) => x.planId !== planId),
+      page: 'diagram', ...(diagId ? { activeDiagramId: diagId } : {}),
+    }))
+    const plan = get().plans.find((x) => x.id === planId)
+    get().log('test', 'plan-run', `▶ Resumed plan run "${plan?.name}" at case ${p.run.caseIndex + 1} of ${p.run.queue.length}`, planId)
+  },
+  discardPausedRun: (planId) => {
+    set((s) => ({ pausedRuns: s.pausedRuns.filter((x) => x.planId !== planId) }))
+    get().log('test', 'plan-run', 'Discarded a paused plan run', planId)
+  },
   queueCaseNext: (caseId) => {
     const r = get().planRun
     if (!r || r.queue.includes(caseId)) return
@@ -1267,6 +1339,53 @@ export const useStore = create((set, get) => ({
   },
 
   // ---- bug tracking: bugs raised against failed steps or whole cases ----
+  // ---- issues: lightweight findings raised on cases/steps BEFORE a bug exists.
+  // Reassignable to another user for validation; resolvable or escalatable to a bug.
+  // An open/validating issue on a step gates that step's successors (see predState).
+  issues: [], // { id, seq, title, description, caseId, stepId, status: open|validating|resolved|escalated, assignedTo, createdAt, createdBy, resolution, bugId }
+  createIssue: (i) => {
+    const seq = 'ISS-' + String(get().issues.length + 1).padStart(3, '0')
+    const issue = {
+      id: uid('iss'), seq, title: i.title || 'Untitled issue', description: i.description || '',
+      caseId: i.caseId || null, stepId: i.stepId || null,
+      status: i.assignedTo ? 'validating' : 'open', assignedTo: i.assignedTo || null,
+      createdAt: now(), createdBy: get().currentUser.name, resolution: '', bugId: null,
+    }
+    set((s) => ({ issues: [issue, ...s.issues] }))
+    const c = get().cases.find((x) => x.id === issue.caseId)
+    get().log('test', 'issue', `⚠ ${seq} "${issue.title}" raised${c ? ` on "${c.name}"` : ''}${issue.assignedTo ? ` — assigned to ${issue.assignedTo.name} for validation` : ''}`, issue.id)
+    if (issue.assignedTo?.email) {
+      get().notify(issue.assignedTo.email, 'issue', `Pathways.io — issue ${seq} needs validation`,
+        `${get().currentUser.name} assigned issue ${seq} "${issue.title}"${c ? ` on test case "${c.name}"` : ''} to you for validation.\n\n${issue.description || ''}`)
+    }
+    return issue
+  },
+  reassignIssue: (id, member) => {
+    set((s) => ({ issues: s.issues.map((x) => (x.id === id ? { ...x, assignedTo: member, status: 'validating' } : x)) }))
+    const iss = get().issues.find((x) => x.id === id)
+    get().log('test', 'issue', `⚠ ${iss.seq} reassigned to ${member.name} for validation`, id)
+    if (member.email) get().notify(member.email, 'issue', `Pathways.io — issue ${iss.seq} needs validation`,
+      `${get().currentUser.name} reassigned issue ${iss.seq} "${iss.title}" to you for validation.`)
+  },
+  resolveIssue: (id, resolution) => {
+    set((s) => ({ issues: s.issues.map((x) => (x.id === id ? { ...x, status: 'resolved', resolution: resolution || '' } : x)) }))
+    const iss = get().issues.find((x) => x.id === id)
+    get().log('test', 'issue', `✓ ${iss.seq} "${iss.title}" resolved${resolution ? ` — ${resolution}` : ''}`, id)
+  },
+  // validation failed → the issue becomes a real bug (details carried over)
+  escalateIssue: (id) => {
+    const iss = get().issues.find((x) => x.id === id)
+    if (!iss || iss.status === 'escalated') return
+    const bug = get().createBug({
+      title: iss.title, description: `${iss.description}\n\n(escalated from issue ${iss.seq}${iss.resolution ? ` — validation note: ${iss.resolution}` : ''})`.trim(),
+      caseId: iss.caseId, stepId: iss.stepId,
+    })
+    set((s) => ({ issues: s.issues.map((x) => (x.id === id ? { ...x, status: 'escalated', bugId: bug.id } : x)) }))
+    get().log('test', 'issue', `⚠→🐞 ${iss.seq} escalated to ${bug.seq}`, id)
+    return bug
+  },
+  deleteIssue: (id) => set((s) => ({ issues: s.issues.filter((x) => x.id !== id) })),
+
   bugs: [], // { id, seq, title, description, severity, status, caseId, stepId, execId, diagramId, targetIds, createdAt, createdBy }
   createBug: (b) => {
     const seq = 'BUG-' + String(get().bugs.length + 1).padStart(3, '0')
@@ -1356,7 +1475,7 @@ export const useStore = create((set, get) => ({
   // snapshot of the ACTIVE project's data only (no platform-level state)
   snapshotProject: () => {
     const s = get()
-    return { project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs }
+    return { project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs, issues: s.issues, pausedRuns: s.pausedRuns }
   },
   // full platform export: active project + all stashed projects + global state
   exportProject: () => {
@@ -1378,6 +1497,7 @@ export const useStore = create((set, get) => ({
       savedThemes: obj.savedThemes || [],
       typeDefs: obj.typeDefs || {},
       bugs: obj.bugs || [],
+      issues: obj.issues || [], pausedRuns: obj.pausedRuns || [], resumePartial: null,
       // the default saved theme (★) wins on open; otherwise restore the live theme as saved
       ...((() => {
         const def = (obj.savedThemes || []).find((t) => t.isDefault)
@@ -1416,7 +1536,7 @@ export const useStore = create((set, get) => ({
       project: { id: pid, name: (name || '').trim() || 'New Project', description: '', createdAt: now(), schemaVersion: 2,
         members: [{ id: uid('u'), name: me.name, email: me.email, role: 'owner' }] },
       diagrams: [d], activeDiagramId: d.id, suites: [], cases: [], plans: [], planRun: null, planPreview: null,
-      changeLog: [], notifications: [], typeFormats: {}, bugs: [],
+      changeLog: [], notifications: [], typeFormats: {}, bugs: [], issues: [], pausedRuns: [], resumePartial: null,
     })
     get().refreshSessionPerms()
     get().cacheTerm(name)
