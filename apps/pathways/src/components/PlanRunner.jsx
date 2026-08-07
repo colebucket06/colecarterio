@@ -185,21 +185,47 @@ export default function PlanRunner() {
   const [promptedCase, setPromptedCase] = useState(null)
   const [bugCtx, setBugCtx] = useState(null)
   const [issueCtx, setIssueCtx] = useState(null)
+  const [caseStartedAt, setCaseStartedAt] = useState(null)
+  const [stepTimes, setStepTimes] = useState({}) // stepId -> { startedAt, endedAt }
 
   useEffect(() => {
     if (tc) {
-      // resumed run: restore the partially-marked steps captured at pause time
+      // resumed run: restore the partially-marked steps + timing captured at pause time
       const part = useStore.getState().resumePartial
       if (part && part.caseId === tc.id) {
         setResults(part.results || [])
         setComment(part.comment || ''); setOverride('')
+        setCaseStartedAt(part.caseStartedAt || new Date().toISOString())
+        setStepTimes(part.stepTimes || {})
         useStore.setState({ resumePartial: null })
         return
       }
-      setResults(tc.steps.map((st) => ({ stepId: st.id, status: 'Pass', actual: '', returnValue: '', evidence: [] })))
+      // fields start CLEAR — every step must be explicitly marked by the executor
+      setResults(tc.steps.map((st) => ({ stepId: st.id, status: '', actual: '', returnValue: '', evidence: [] })))
       setComment(''); setOverride('')
+      const startIso = new Date().toISOString()
+      setCaseStartedAt(startIso)
+      setStepTimes(tc.steps[0] ? { [tc.steps[0].id]: { startedAt: startIso } } : {})
+      const st0 = useStore.getState()
+      st0.log('test', 'execute', `▶ Started case "${tc.name}" — assignee: ${tc.assignedTo?.name || 'unassigned'}, executor: ${st0.currentUser.name}`, tc.id)
     }
   }, [tc?.id]) // eslint-disable-line
+
+  // step timing: stamp start when a step becomes active, end on the one it left
+  const prevStepRef = React.useRef(null)
+  useEffect(() => {
+    const cur = tc?.steps[run?.stepIndex]?.id
+    const prev = prevStepRef.current
+    if (cur && prev && prev !== cur) {
+      const iso = new Date().toISOString()
+      setStepTimes((t) => ({
+        ...t,
+        [prev]: { ...(t[prev] || { startedAt: iso }), endedAt: iso },
+        [cur]: { startedAt: t[cur]?.startedAt || iso, endedAt: t[cur]?.endedAt },
+      }))
+    }
+    prevStepRef.current = cur
+  }, [run?.stepIndex, tc?.id]) // eslint-disable-line
 
   const runIds = useMemo(() => {
     const set = new Set()
@@ -233,7 +259,7 @@ export default function PlanRunner() {
   const locks = tc.steps.map((st, i) => lockFor(st, i))
   const effStatus = (i) => (locks[i] ? 'Blocked' : results[i]?.status)
   const computed = (() => {
-    const sts = results.map((r, i) => effStatus(i))
+    const sts = results.map((r, i) => effStatus(i)).filter(Boolean)
     if (sts.includes('Fail')) return 'Fail'
     if (sts.includes('Halted')) return 'Halted'
     if (sts.includes('Blocked')) return 'Blocked'
@@ -241,6 +267,7 @@ export default function PlanRunner() {
     if (sts.length && sts.every((x) => x === 'Not Applicable')) return 'Not Applicable'
     return 'Pass'
   })()
+  const unmarked = results.filter((r, i) => !effStatus(i)).length
   const overall = override || computed
   const needsComment = overall !== 'Pass' && !comment.trim()
   const unmet = tc.steps.flatMap((st, i) => {
@@ -250,21 +277,29 @@ export default function PlanRunner() {
   const atEnd = stepIdx >= tc.steps.length - 1
 
   const finishCase = () => {
+    const endIso = new Date().toISOString()
     s.completePlanCase({
-      executedAt: new Date().toISOString(), executedBy: s.currentUser.name,
+      executedAt: endIso, executedBy: s.currentUser.name,
       assignedTo: tc.assignedTo || null, planId: run.planId,
-      stepResults: results.map((r, i) => ({ ...r, status: effStatus(i) })), overallStatus: overall, comment: comment.trim(),
+      startedAt: caseStartedAt, endedAt: endIso,
+      stepResults: results.map((r, i) => ({
+        ...r, status: effStatus(i),
+        startedAt: stepTimes[r.stepId]?.startedAt || null,
+        endedAt: stepTimes[r.stepId]?.endedAt || endIso,
+      })),
+      overallStatus: overall, comment: comment.trim(),
     })
+    s.log('test', 'execute', `⏹ Stopped case "${tc.name}" — ${overall}; started ${new Date(caseStartedAt).toLocaleTimeString()}, stopped ${new Date(endIso).toLocaleTimeString()}`, tc.id)
   }
 
   return (
     <>
       <aside className="props-panel runner-panel">
-        <h3>🧭 Plan Run: {plan?.name}
+        <h3>{run.adhoc ? <>🧪 Case Run: {tc.name}</> : <>🧭 Plan Run: {plan?.name}</>}
           <button className="btn small" style={{ marginLeft: 'auto' }}
             title="Pause (halt) this run — everything marked so far is kept and the run resumes later from this exact spot"
-            onClick={() => s.pausePlanRun({ caseId: tc.id, results, comment })}>⏸ Pause</button>
-          <button className="btn small danger" onClick={() => s.endPlanRun()}>Abort</button></h3>
+            onClick={() => s.pausePlanRun({ caseId: tc.id, results, comment, caseStartedAt, stepTimes })}>⏸ Pause</button>
+          <button className="btn small danger" title="Abandon this run — nothing further is recorded" onClick={() => s.endPlanRun()}>⏹ Abandon</button></h3>
         <div className="run-progress">
           Case <b>{run.caseIndex + 1}</b> of <b>{run.queue.length}</b>
           {run.results.map((r) => <span key={r.caseId} className={stCls(r.status)} title={s.cases.find((c) => c.id === r.caseId)?.name}>{r.status[0]}</span>)}
@@ -290,7 +325,9 @@ export default function PlanRunner() {
                 <span className="num">{i + 1}</span>
                 <span style={{ flex: 1, fontSize: 12.5, fontWeight: active ? 700 : 400 }}>{st.action || '(no action)'}</span>
                 {locks[i] && <span title={'Locked by: ' + locks[i].map((b) => `${b.label} (${b.reason})`).join('; ')}>🔒</span>}
-                {!active && <span className={stCls(effStatus(i))}>{effStatus(i)}</span>}
+                {!active && (effStatus(i)
+                  ? <span className={stCls(effStatus(i))}>{effStatus(i)}</span>
+                  : <span className="status-chip st-pending">· pending</span>)}
               </div>
               {active && (
                 <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
@@ -350,6 +387,7 @@ export default function PlanRunner() {
             placeholder={overall !== 'Pass' ? 'Comment required (status is not Pass)…' : 'Execution comment (optional)'} />
           {needsComment && <div className="req-warn">⚠ Comment required — status is not Pass.</div>}
           {unmet.length > 0 && <div className="req-warn">⚠ Unmet: {unmet.map((u) => `step ${u.step} ${reqLabel(u.kind)}`).join('; ')}</div>}
+          {unmarked > 0 && <div className="req-warn">⚠ {unmarked} step{unmarked === 1 ? '' : 's'} unmarked — every step needs an explicit status.</div>}
           <button className="btn small" style={{ width: '100%', marginTop: 7 }}
             title="Raise an issue against the whole case (pre-bug) and optionally reassign it for validation"
             onClick={() => setIssueCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>⚠ Raise issue on this case</button>
@@ -361,7 +399,7 @@ export default function PlanRunner() {
               🐞 Create bug against this failed case</button>
           )}
           <button className="btn primary" style={{ width: '100%', marginTop: 8 }}
-            disabled={needsComment || unmet.length > 0 || tc.steps.length === 0}
+            disabled={needsComment || unmet.length > 0 || tc.steps.length === 0 || unmarked > 0}
             onClick={finishCase}>
             {run.caseIndex + 1 < run.queue.length ? '✔ Complete case & continue route' : '✔ Complete case & finish plan'}
           </button>

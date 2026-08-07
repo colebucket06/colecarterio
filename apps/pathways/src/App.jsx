@@ -1002,6 +1002,14 @@ export default function App() {
         )}
       </header>
 
+
+      <datalist id="pw-terms">
+        {s.termsCache.map((t) => <option key={t} value={t} />)}
+      </datalist>
+      <main className="main">
+        {s.page === 'diagram' ? <DiagramDashboard /> : <TestDashboard />}
+        {showLog && <LogPanel onClose={() => setShowLog(false)} />}
+      </main>
       <div className="txn-banner" onClick={() => setShowLog(!showLog)} title="Click to open full change history">
         <span className="pill">{s.changeLog.length} transactions</span>
         {s.planRun && (
@@ -1020,14 +1028,6 @@ export default function App() {
         <span className="latest">{latest ? `Latest: ${latest.summary} — ${latest.actor}, ${new Date(latest.ts).toLocaleTimeString()}` : 'No activity yet'}</span>
         <span style={{ fontSize: 11 }}>{showLog ? '▲ hide log' : '▼ view log'}</span>
       </div>
-
-      <datalist id="pw-terms">
-        {s.termsCache.map((t) => <option key={t} value={t} />)}
-      </datalist>
-      <main className="main">
-        {s.page === 'diagram' ? <DiagramDashboard /> : <TestDashboard />}
-        {showLog && <LogPanel onClose={() => setShowLog(false)} />}
-      </main>
       {showNotifs && <NotifPanel onClose={() => setShowNotifs(false)} />}
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}

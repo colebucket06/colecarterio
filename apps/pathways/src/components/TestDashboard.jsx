@@ -62,18 +62,103 @@ function StepDepsEditor({ tc, st }) {
   )
 }
 
+
+// ---- 🎯 mapped-point management: popup listing a step's mapped nodes & paths ----
+function MapManageModal({ tc, stepId, onClose }) {
+  const s = useStore()
+  const st = tc.steps.find((x) => x.id === stepId)
+  const idx = tc.steps.findIndex((x) => x.id === stepId)
+  if (!st) return null
+  const entries = (st.targetIds || []).map((id) => {
+    for (const d of s.diagrams) {
+      const n = d.nodes.find((x) => x.id === id)
+      if (n) return { id, kind: n.type === 'flow' ? 'node' : n.type, label: n.data.label, sub: n.data.nodeType, diagram: d.name }
+      const e = d.edges.find((x) => x.id === id)
+      if (e) {
+        const a = d.nodes.find((x) => x.id === e.source)?.data.label || '?'
+        const b = d.nodes.find((x) => x.id === e.target)?.data.label || '?'
+        return { id, kind: 'path', label: `${a} → ${b}${e.label ? ` · "${e.label}"` : ''}`, sub: e.data?.classification || 'default', diagram: d.name }
+      }
+    }
+    return { id, kind: 'missing', label: 'Element no longer exists in any diagram', sub: '', diagram: '—' }
+  })
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className="modal" style={{ width: 'min(560px,94vw)' }} onClick={(e) => e.stopPropagation()}>
+        <h2>🎯 Mapped Points — step {idx + 1}</h2>
+        <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 8 }}>
+          {(st.action || '(no action)')} — {entries.length} mapped element{entries.length === 1 ? '' : 's'}. Mapped elements highlight on the workflow while this step executes.
+        </div>
+        {entries.length === 0 && <div className="empty">No points mapped yet — use “＋ Add points on canvas”.</div>}
+        {entries.map((en) => (
+          <div className="member-row" key={en.id}>
+            <span className="tag project">{en.kind === 'path' ? '↦ path' : en.kind === 'missing' ? '⚠' : '▢ ' + en.kind}</span>
+            <div style={{ flex: 1 }}>
+              <b style={{ fontSize: 12.5 }}>{en.label}</b>
+              <div style={{ fontSize: 10.5, color: 'var(--text-dim)' }}>{en.sub}{en.sub ? ' · ' : ''}{en.diagram}</div>
+            </div>
+            <button className="btn small" title="Remove this mapped point"
+              onClick={() => s.removeStepTarget(tc.id, stepId, en.id)}>✕</button>
+          </div>
+        ))}
+        <div className="foot">
+          <button className="btn" onClick={onClose}>Close</button>
+          <button className="btn small" disabled={!entries.length}
+            onClick={() => (st.targetIds || []).slice().forEach((id) => s.removeStepTarget(tc.id, stepId, id))}>🗑 Clear all</button>
+          <button className="btn primary" onClick={() => { onClose(); s.startStepMapping(tc.id, stepId) }}>＋ Add points on canvas</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ExecutionModal({ tc, suite, onClose }) {
   const s = useStore()
-  const [results, setResults] = useState(tc.steps.map((st) => ({ stepId: st.id, status: 'Pass', actual: '', returnValue: '', evidence: [] })))
-  const [override, setOverride] = useState('')
-  const [comment, setComment] = useState('')
+  // paused (halted) execution of this case? restore it — otherwise fields start CLEAR
+  const stash = useMemo(() => s.consumeCaseExec(tc.id), []) // eslint-disable-line
+  const [results, setResults] = useState(stash?.results
+    || tc.steps.map((st) => ({ stepId: st.id, status: '', actual: '', returnValue: '', evidence: [] })))
+  const [override, setOverride] = useState(stash?.override || '')
+  const [comment, setComment] = useState(stash?.comment || '')
+  const [startedAt, setStartedAt] = useState(stash?.startedAt || null) // null = not started yet
+  const [stepTimes, setStepTimes] = useState(stash?.stepTimes || {})
+  const [confirmAbandon, setConfirmAbandon] = useState(false)
+  const started = !!startedAt
   const suiteReqKinds = (suite?.requirementTypes || []).map((r) => r.kind)
 
   const stepReqs = (st) => (st.requirements || []).filter((k) => suiteReqKinds.includes(k) || REQUIREMENT_KINDS.some((r) => r.kind === k))
 
+  // step timing: first interaction stamps the step's start, a status choice stamps its stop
+  const touchStep = (stepId, final) => setStepTimes((t) => {
+    const iso = new Date().toISOString()
+    const cur = t[stepId] || {}
+    return { ...t, [stepId]: { startedAt: cur.startedAt || iso, endedAt: final ? iso : cur.endedAt } }
+  })
+
+  const start = () => {
+    const iso = new Date().toISOString()
+    setStartedAt(iso)
+    s.log('test', 'execute', `▶ Started case "${tc.name}" — assignee: ${tc.assignedTo?.name || 'unassigned'}, executor: ${s.currentUser.name}`, tc.id)
+  }
+  const pause = () => {
+    s.pauseCaseExec(tc.id, { results, comment, override, startedAt, stepTimes })
+    onClose()
+  }
+  const abandon = () => {
+    s.log('test', 'execute', `⏹ Abandoned execution of "${tc.name}" — assignee: ${tc.assignedTo?.name || 'unassigned'}, executor: ${s.currentUser.name}${startedAt ? `, started ${new Date(startedAt).toLocaleTimeString()}` : ''} — nothing recorded`, tc.id)
+    onClose()
+  }
+  const openWorkflow = () => {
+    // carry current progress into the diagram-view runner (steps affix on the right)
+    const partial = started ? { results, comment, caseStartedAt: startedAt, stepTimes } : undefined
+    onClose()
+    s.startCaseRun(tc.id, partial)
+  }
+
   const computed = useMemo(() => {
-    const sts = results.map((r) => r.status)
+    const sts = results.map((r) => r.status).filter(Boolean)
     if (sts.includes('Fail')) return 'Fail'
+    if (sts.includes('Halted')) return 'Halted'
     if (sts.includes('Blocked')) return 'Blocked'
     if (sts.includes('Partial Pass')) return 'Partial Pass'
     if (sts.length && sts.every((x) => x === 'Not Applicable')) return 'Not Applicable'
@@ -81,18 +166,25 @@ function ExecutionModal({ tc, suite, onClose }) {
   }, [results])
   const overall = override || computed
   const needsComment = overall !== 'Pass' && !comment.trim()
+  const unmarked = results.filter((r) => !r.status).length
 
   const unmet = tc.steps.flatMap((st, i) => {
-    if (results[i].status === 'Not Applicable') return []
+    if (!results[i] || results[i].status === 'Not Applicable' || results[i].status === '') return []
     return stepReqs(st).filter((k) => !reqMet(k, results[i])).map((k) => ({ step: i + 1, kind: k }))
   })
 
   const save = () => {
+    const endIso = new Date().toISOString()
     s.addExecution(tc.id, {
-      executedAt: new Date().toISOString(), executedBy: s.currentUser.name,
+      executedAt: endIso, executedBy: s.currentUser.name,
       assignedTo: tc.assignedTo || null,
-      stepResults: results, overallStatus: overall, comment: comment.trim(),
+      startedAt, endedAt: endIso,
+      stepResults: results.map((r) => ({
+        ...r, startedAt: stepTimes[r.stepId]?.startedAt || null, endedAt: stepTimes[r.stepId]?.endedAt || endIso,
+      })),
+      overallStatus: overall, comment: comment.trim(),
     })
+    s.log('test', 'execute', `⏹ Stopped case "${tc.name}" — ${overall}; started ${new Date(startedAt).toLocaleTimeString()}, stopped ${new Date(endIso).toLocaleTimeString()}`, tc.id)
     onClose()
   }
 
@@ -100,8 +192,29 @@ function ExecutionModal({ tc, suite, onClose }) {
     <div className="modal-scrim" onClick={onClose}>
       <div className="modal" style={{ width: 'min(760px,94vw)' }} onClick={(e) => e.stopPropagation()}>
         <h2>▶ Execute: {tc.name}</h2>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+          {!started
+            ? <button className="btn small primary" onClick={start}
+                title="Begin execution — logs assignee, executor, and the start time; step timing begins">▶ Start</button>
+            : <span className="tag test" title={`Started ${new Date(startedAt).toLocaleTimeString()}`}>⏱ started {new Date(startedAt).toLocaleTimeString()}</span>}
+          <button className="btn small" disabled={!started} title="Pause (halt) — progress is kept and restored the next time this case is executed"
+            onClick={pause}>⏸ Pause</button>
+          {confirmAbandon ? (<>
+            <button className="btn small danger" onClick={abandon}>✓ Confirm abandon</button>
+            <button className="btn small" onClick={() => setConfirmAbandon(false)}>✕</button>
+          </>) : (
+            <button className="btn small danger" title="Abandon — log the abandonment and record nothing"
+              onClick={() => setConfirmAbandon(true)}>⏹ Abandon</button>
+          )}
+          <button className="btn small" style={{ marginLeft: 'auto' }} title="Open the Workflow Diagram view — the test steps affix as a sidebar on the right of the workspace"
+            onClick={openWorkflow}>🗺 View in Workflow Diagram</button>
+        </div>
+        {tc.assignedTo && <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>Assignee: {tc.assignedTo.name} · Executor: {s.currentUser.name}</div>}
         {tc.preconditions && <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 10 }}>Preconditions: {tc.preconditions}</div>}
         {tc.steps.length === 0 && <div className="empty">This case has no steps — add steps before executing.</div>}
+        {!started && tc.steps.length > 0 && (
+          <div className="req-warn" style={{ marginBottom: 8 }}>Press ▶ Start to begin — fields stay locked until execution starts.</div>
+        )}
         {tc.steps.map((st, i) => {
           const reqs = stepReqs(st)
           return (
@@ -119,17 +232,18 @@ function ExecutionModal({ tc, suite, onClose }) {
                 </div>
               )}
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span className="seg">
+                <span className="seg" style={{ opacity: started ? 1 : 0.5 }}>
                   {STATUS_OPTIONS.map((opt) => (
-                    <button key={opt} className={(results[i].status === opt ? 'on ' : '') + opt.replace(/\s/g, '')}
-                      onClick={() => setResults(results.map((r, j) => (j === i ? { ...r, status: opt } : r)))}>{opt}</button>
+                    <button key={opt} disabled={!started} className={(results[i].status === opt ? 'on ' : '') + opt.replace(/\s/g, '')}
+                      onClick={() => { touchStep(st.id, true); setResults(results.map((r, j) => (j === i ? { ...r, status: opt } : r))) }}>{opt}</button>
                   ))}
                 </span>
-                <input style={{ flex: 1, minWidth: 150 }} placeholder="Actual result…" value={results[i].actual}
-                  onChange={(e) => setResults(results.map((r, j) => (j === i ? { ...r, actual: e.target.value } : r)))} />
+                {!results[i].status && <span className="status-chip st-pending">· pending</span>}
+                <input style={{ flex: 1, minWidth: 150 }} disabled={!started} placeholder="Actual result…" value={results[i].actual}
+                  onChange={(e) => { touchStep(st.id); setResults(results.map((r, j) => (j === i ? { ...r, actual: e.target.value } : r))) }} />
                 {reqs.includes('returnValue') && (
-                  <input style={{ width: 150 }} placeholder="Return value *" value={results[i].returnValue}
-                    onChange={(e) => setResults(results.map((r, j) => (j === i ? { ...r, returnValue: e.target.value } : r)))} />
+                  <input style={{ width: 150 }} disabled={!started} placeholder="Return value *" value={results[i].returnValue}
+                    onChange={(e) => { touchStep(st.id); setResults(results.map((r, j) => (j === i ? { ...r, returnValue: e.target.value } : r))) }} />
                 )}
               </div>
               <AttachmentManager compact items={results[i].evidence}
@@ -153,10 +267,13 @@ function ExecutionModal({ tc, suite, onClose }) {
           {unmet.length > 0 && (
             <div className="req-warn">⚠ Unmet requirements: {unmet.map((u) => `step ${u.step} — ${reqLabel(u.kind)}`).join('; ')}</div>
           )}
+          {started && unmarked > 0 && (
+            <div className="req-warn">⚠ {unmarked} step{unmarked === 1 ? '' : 's'} unmarked — every step needs an explicit status before saving.</div>
+          )}
         </div>
         <div className="foot">
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={needsComment || unmet.length > 0 || tc.steps.length === 0} onClick={save}>Save execution</button>
+          <button className="btn primary" disabled={!started || needsComment || unmet.length > 0 || tc.steps.length === 0 || unmarked > 0} onClick={save}>Save execution</button>
         </div>
       </div>
     </div>
@@ -329,6 +446,8 @@ export default function TestDashboard() {
   const [expandedStep, setExpandedStep] = useState(null)
   const [bugCtx, setBugCtx] = useState(null)
   const [issueCtx, setIssueCtx] = useState(null)
+  const [mapMenu, setMapMenu] = useState(null)   // { x, y, stepId }
+  const [manageMap, setManageMap] = useState(null) // stepId
   // collapsible side columns — collapse to a thin rail to maximize the workspace
   const [collapsedCols, setCollapsedCols] = useState({ suites: false, cases: false })
   const railTag = (key, label) => (
@@ -547,7 +666,15 @@ export default function TestDashboard() {
                   <input type="checkbox" checked={tc.shared !== false} onChange={(e) => s.setCaseShared(tc.id, e.target.checked)} />
                   🌐</label>
               )}
-              <button className="btn primary" onClick={() => setRunning(true)}>▶ Run</button>
+              <button className="btn primary" title={s.pausedCaseExecs.some((x) => x.caseId === tc.id) ? 'A paused (halted) execution exists — running restores it where it stopped' : 'Execute this test case'}
+                onClick={() => setRunning(true)}>{s.pausedCaseExecs.some((x) => x.caseId === tc.id) ? '⏵ Resume' : '▶ Run'}</button>
+              {s.pausedRuns.some((x) => x.planId === 'adhoc:' + tc.id) ? (
+                <button className="btn" title="Resume the paused workflow-view run of this case" disabled={!!s.planRun}
+                  onClick={() => s.resumePlanRun('adhoc:' + tc.id)}>🗺 ⏵ Resume workflow run</button>
+              ) : (
+                <button className="btn" title="Run this case in the Workflow Diagram view — its steps affix as a sidebar on the right" disabled={!!s.planRun}
+                  onClick={() => s.startCaseRun(tc.id)}>🗺 Run in workflow</button>
+              )}
               <button className="btn danger small" onClick={() => { s.deleteCase(tc.id); setCaseId(null) }}>Delete</button>
             </div>
             <div className="section" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -586,8 +713,10 @@ export default function TestDashboard() {
                       title={st.shared === false ? 'This step is hidden from viewers — click to share it' : 'Shared with viewers — click to hide this step'}
                       onClick={() => s.setStepShared(tc.id, st.id, st.shared === false)}>{st.shared === false ? '🔒' : '🌐'}</button>
                     <button className="btn small" style={{ marginTop: 3 }}
-                      title={`Map this step to diagram nodes / paths (${(st.targetIds || []).length} mapped) — the mapped elements highlight while this step executes`}
-                      onClick={() => s.startStepMapping(tc.id, st.id)}>🎯{(st.targetIds || []).length > 0 ? <small>{st.targetIds.length}</small> : ''}</button>
+                      title={`Map this step to diagram nodes / paths (${(st.targetIds || []).length} mapped) — click to add on the canvas; right-click to add or manage points`}
+                      onClick={() => s.startStepMapping(tc.id, st.id)}
+                      onContextMenu={(e) => { e.preventDefault(); setMapMenu({ x: e.clientX, y: e.clientY, stepId: st.id }) }}
+                    >🎯{(st.targetIds || []).length > 0 ? <small>{st.targetIds.length}</small> : ''}</button>
                     {((st.preds || []).length > 0 || successorsOf(s.cases, tc.id, st.id).length > 0) && (
                       <span className="req-badge" style={{ marginTop: 5 }} title={`${(st.preds || []).length} predecessor(s) · ${successorsOf(s.cases, tc.id, st.id).length} successor(s)`}>⛓</span>
                     )}
@@ -717,6 +846,15 @@ export default function TestDashboard() {
       {running && tc && <ExecutionModal tc={tc} suite={suite} onClose={() => setRunning(false)} />}
       {bugCtx && <BugModal context={bugCtx} onClose={() => setBugCtx(null)} />}
       {issueCtx && <IssueModal context={issueCtx} onClose={() => setIssueCtx(null)} />}
+      {mapMenu && tc && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={() => setMapMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMapMenu(null) }}>
+          <div className="ctx-menu" style={{ position: 'fixed', left: mapMenu.x, top: mapMenu.y }} onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => { const id = mapMenu.stepId; setMapMenu(null); s.startStepMapping(tc.id, id) }}>➕ Add new points on canvas</button>
+            <button onClick={() => { setManageMap(mapMenu.stepId); setMapMenu(null) }}>⚙ Manage existing points…</button>
+          </div>
+        </div>
+      )}
+      {manageMap && tc && <MapManageModal tc={tc} stepId={manageMap} onClose={() => setManageMap(null)} />}
       {importing && <ImportWizard defaultSuiteId={suiteId} onClose={(newSuiteId) => { setImporting(false); if (newSuiteId) setSuiteId(newSuiteId) }} />}
     </div>
   )

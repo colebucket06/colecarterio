@@ -1268,6 +1268,18 @@ export const useStore = create((set, get) => ({
   // ---- pause / resume: an in-progress run (including partially-marked steps of the
   // current case) can be halted and picked up later exactly where it stopped ----
   pausedRuns: [], // [{ planId, run, partial: { caseId, results, comment } | null, pausedAt, by }]
+  pausedCaseExecs: [], // paused ⏸ single-case executions from the Execute window, keyed by caseId
+  pauseCaseExec: (caseId, payload) => {
+    const tc = get().cases.find((c) => c.id === caseId)
+    set((s) => ({ pausedCaseExecs: [...s.pausedCaseExecs.filter((x) => x.caseId !== caseId), { caseId, ...payload, pausedAt: now(), by: get().currentUser.name }] }))
+    get().log('test', 'execute', `⏸ Paused (halted) execution of "${tc?.name}" — assignee: ${tc?.assignedTo?.name || 'unassigned'}, executor: ${get().currentUser.name}`, caseId)
+  },
+  consumeCaseExec: (caseId) => {
+    const p = get().pausedCaseExecs.find((x) => x.caseId === caseId)
+    if (p) set((s) => ({ pausedCaseExecs: s.pausedCaseExecs.filter((x) => x.caseId !== caseId) }))
+    return p || null
+  },
+  discardCaseExec: (caseId) => set((s) => ({ pausedCaseExecs: s.pausedCaseExecs.filter((x) => x.caseId !== caseId) })),
   resumePartial: null, // transient — PlanRunner consumes this after a resume
   pausePlanRun: (partial) => {
     const r = get().planRun
@@ -1319,6 +1331,10 @@ export const useStore = create((set, get) => ({
         planRun: { ...r, caseIndex: r.caseIndex + 1, stepIndex: 0, results },
         ...(diagId ? { activeDiagramId: diagId } : {}),
       })
+    } else if (r.adhoc) {
+      const tc2 = get().cases.find((c) => c.id === caseId)
+      set({ planRun: null })
+      get().log('test', 'execute', `⏹ Finished workflow-view execution of "${tc2?.name}" — ${execution.overallStatus}`, caseId)
     } else {
       const plan = get().plans.find((p) => p.id === r.planId)
       get().updatePlan(r.planId, {
@@ -1333,9 +1349,29 @@ export const useStore = create((set, get) => ({
   endPlanRun: () => {
     const r = get().planRun
     if (!r) return
-    const plan = get().plans.find((p) => p.id === r.planId)
-    set({ planRun: null })
-    get().log('test', 'plan-run', `Aborted plan "${plan?.name}" after ${r.results.length} case(s)`, r.planId)
+    const tc = get().cases.find((c) => c.id === r.queue[r.caseIndex])
+    set({ planRun: null, resumePartial: null })
+    if (r.adhoc) {
+      get().log('test', 'execute', `⏹ Abandoned execution of "${tc?.name}" — assignee: ${tc?.assignedTo?.name || 'unassigned'}, executor: ${get().currentUser.name}`, tc?.id)
+    } else {
+      const plan = get().plans.find((p) => p.id === r.planId)
+      get().log('test', 'plan-run', `⏹ Abandoned plan "${plan?.name}" after ${r.results.length} case(s) — executor: ${get().currentUser.name}`, r.planId)
+    }
+  },
+
+  // ---- ad-hoc single-case run in the Workflow Diagram view: the runner side
+  // panel affixes on the right of the workspace with the case's steps ----
+  startCaseRun: (caseId, partial) => {
+    if (get().planRun) return
+    const tc = get().cases.find((c) => c.id === caseId)
+    if (!tc) return
+    const diagId = tc.links[0]?.diagramId
+    set({
+      planRun: { planId: 'adhoc:' + caseId, adhoc: true, queue: [caseId], caseIndex: 0, stepIndex: 0, results: [] },
+      resumePartial: partial ? { caseId, ...partial } : null,
+      page: 'diagram', ...(diagId ? { activeDiagramId: diagId } : {}),
+    })
+    get().log('test', 'execute', `▶ Started "${tc.name}" in the workflow view — assignee: ${tc.assignedTo?.name || 'unassigned'}, executor: ${get().currentUser.name}`, caseId)
   },
 
   // ---- bug tracking: bugs raised against failed steps or whole cases ----
@@ -1428,6 +1464,16 @@ export const useStore = create((set, get) => ({
         : c)),
     }))
   },
+  removeStepTarget: (caseId, stepId, targetId) => {
+    set((s) => ({
+      cases: s.cases.map((c) => (c.id === caseId
+        ? { ...c, steps: c.steps.map((st) => (st.id === stepId
+            ? { ...st, targetIds: (st.targetIds || []).filter((x) => x !== targetId) }
+            : st)) }
+        : c)),
+    }))
+    get().log('test', 'link', 'Removed a mapped diagram point from a test step', caseId)
+  },
   endStepMapping: () => {
     const m = get().stepMapping
     if (!m) return
@@ -1475,7 +1521,7 @@ export const useStore = create((set, get) => ({
   // snapshot of the ACTIVE project's data only (no platform-level state)
   snapshotProject: () => {
     const s = get()
-    return { project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs, issues: s.issues, pausedRuns: s.pausedRuns }
+    return { project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs, issues: s.issues, pausedRuns: s.pausedRuns, pausedCaseExecs: s.pausedCaseExecs }
   },
   // full platform export: active project + all stashed projects + global state
   exportProject: () => {
@@ -1497,7 +1543,7 @@ export const useStore = create((set, get) => ({
       savedThemes: obj.savedThemes || [],
       typeDefs: obj.typeDefs || {},
       bugs: obj.bugs || [],
-      issues: obj.issues || [], pausedRuns: obj.pausedRuns || [], resumePartial: null,
+      issues: obj.issues || [], pausedRuns: obj.pausedRuns || [], pausedCaseExecs: obj.pausedCaseExecs || [], resumePartial: null,
       // the default saved theme (★) wins on open; otherwise restore the live theme as saved
       ...((() => {
         const def = (obj.savedThemes || []).find((t) => t.isDefault)
@@ -1536,7 +1582,7 @@ export const useStore = create((set, get) => ({
       project: { id: pid, name: (name || '').trim() || 'New Project', description: '', createdAt: now(), schemaVersion: 2,
         members: [{ id: uid('u'), name: me.name, email: me.email, role: 'owner' }] },
       diagrams: [d], activeDiagramId: d.id, suites: [], cases: [], plans: [], planRun: null, planPreview: null,
-      changeLog: [], notifications: [], typeFormats: {}, bugs: [], issues: [], pausedRuns: [], resumePartial: null,
+      changeLog: [], notifications: [], typeFormats: {}, bugs: [], issues: [], pausedRuns: [], pausedCaseExecs: [], resumePartial: null,
     })
     get().refreshSessionPerms()
     get().cacheTerm(name)
