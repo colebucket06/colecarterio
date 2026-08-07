@@ -48,6 +48,11 @@ if ($LASTEXITCODE -ne 0) {
   Fail "Bundle verification failed - it may need commits this repo does not have yet. Re-run with:  .\scripts\deploy.ps1 -Bundle _incoming\all-updates.bundle  (that one carries the full history)."
 }
 
+# work from a temp copy: the original lives inside the repo, so a stash of
+# untracked files (below) would otherwise remove it before the fetch
+$workBundle = Join-Path $env:TEMP "pathways-deploy.bundle"
+Copy-Item -Path $Bundle -Destination $workBundle -Force
+
 # --- 3. stash any local changes so the merge cannot be blocked ---
 $dirty = git status --porcelain
 $stashed = $false
@@ -59,7 +64,7 @@ if ($dirty) {
 
 # --- 4. bring the bundle's commits into main ---
 Step "Fetching commits from the bundle"
-git fetch "$Bundle" main
+git fetch "$workBundle" main
 if ($LASTEXITCODE -ne 0) {
   if ($stashed) { git stash pop | Out-Null }
   Fail "git fetch from the bundle failed."
