@@ -11,19 +11,33 @@ import { Landing, Launcher, PathwaysIcon, ProfileSetup } from './components/Land
 function LogPanel({ onClose }) {
   const s = useStore()
   const [filter, setFilter] = useState('all')
-  const entries = s.changeLog.filter((e) => filter === 'all' || (filter === 'flagged' ? e.flagged : e.category === filter))
+  const [confirmClear, setConfirmClear] = useState(false)
+  const unread = s.changeLog.filter((e) => !e.read).length
+  const entries = s.changeLog.filter((e) => filter === 'all' || (filter === 'flagged' ? e.flagged : filter === 'unread' ? !e.read : e.category === filter))
   return (
     <aside className="log-panel" style={{ position: 'absolute', right: 0, top: 0, bottom: 0, zIndex: 40 }}>
       <h3>🕘 Change History
         <button className="btn small" style={{ marginLeft: 'auto' }} onClick={onClose}>✕</button></h3>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        {['all', 'diagram', 'test', 'project', 'flagged'].map((f) => (
-          <button key={f} className={'btn small' + (filter === f ? ' primary' : '')} onClick={() => setFilter(f)}>{f}</button>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+        {['all', 'unread', 'diagram', 'test', 'project', 'flagged'].map((f) => (
+          <button key={f} className={'btn small' + (filter === f ? ' primary' : '')} onClick={() => setFilter(f)}>
+            {f}{f === 'unread' && unread > 0 ? ` (${unread})` : ''}</button>
         ))}
       </div>
-      {entries.length === 0 && <div className="empty">No entries.</div>}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        <button className="btn small" disabled={unread === 0} title="Mark every transaction as read — the unread filter hides them afterwards"
+          onClick={() => s.markLogRead()}>✓ Mark all read</button>
+        {confirmClear ? (<>
+          <button className="btn small danger" onClick={() => { s.clearLog(); setConfirmClear(false) }}>✓ Confirm clear</button>
+          <button className="btn small" onClick={() => setConfirmClear(false)}>✕ Cancel</button>
+        </>) : (
+          <button className="btn small danger" title="Permanently clear the transaction history"
+            onClick={() => setConfirmClear(true)}>🗑 Clear log</button>
+        )}
+      </div>
+      {entries.length === 0 && <div className="empty">{filter === 'unread' ? 'No unread entries — all caught up.' : 'No entries.'}</div>}
       {entries.map((e) => (
-        <div key={e.id} className={'log-entry' + (e.flagged ? ' flagged' : '')}>
+        <div key={e.id} className={'log-entry' + (e.flagged ? ' flagged' : '') + (!e.read ? ' unread' : '')}>
           <div className="meta">
             <span className={'tag ' + e.category}>{e.category}</span>
             <span>{new Date(e.ts).toLocaleTimeString()}</span>
@@ -50,6 +64,7 @@ function NotifPanel({ onClose }) {
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10, gap: 6 }}>
         <b style={{ fontSize: 13.5 }}>📬 Notifications (simulated email outbox)</b>
         <button className="btn small" style={{ marginLeft: 'auto' }} onClick={() => s.markAllRead()}>Mark all read</button>
+        <button className="btn small danger" title="Clear all notifications" onClick={() => s.clearNotifications()}>🗑 Clear</button>
         <button className="btn small" onClick={onClose}>✕</button>
       </div>
       {visible.length === 0 && <div className="empty">No notifications.</div>}

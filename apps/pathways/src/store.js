@@ -146,6 +146,13 @@ export const useStore = create((set, get) => ({
     pathColors: { positive: '#22c55e', negative: '#ef4444' },
     showComments: true,
   },
+  // transaction log: mark prior entries read, or clear the history entirely
+  markLogRead: () => set((s) => ({ changeLog: s.changeLog.map((e) => ({ ...e, read: true })) })),
+  clearLog: () => {
+    set({ changeLog: [] })
+    get().log('project', 'view', 'Cleared the transaction log history')
+  },
+  clearNotifications: () => set({ notifications: [] }),
   setViewSetting: (k, v) => {
     set((s) => ({ viewSettings: { ...s.viewSettings, [k]: v } }))
     get().log('diagram', 'view', `View setting changed: ${k}`)

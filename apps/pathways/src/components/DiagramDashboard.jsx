@@ -25,20 +25,44 @@ const hexAlpha = (hex, a) => {
 }
 const edgeTypes = { sep: SepEdge }
 
+// drag a floating bar: pointer-drag updates its stored position
+const startBarDrag = (el) => (e) => {
+  e.preventDefault()
+  const st = useStore.getState()
+  const cur = (st.viewSettings.workspaceLayout || {})[el] || {}
+  const ox = cur.x ?? 20, oy = cur.y ?? 20
+  const start = { x: e.clientX, y: e.clientY }
+  const move = (ev) => {
+    const s2 = useStore.getState()
+    const wl = s2.viewSettings.workspaceLayout || {}
+    s2.setViewSetting('workspaceLayout', { ...wl, [el]: { ...(wl[el] || {}),
+      x: Math.max(0, ox + ev.clientX - start.x), y: Math.max(0, oy + ev.clientY - start.y) } })
+  }
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+export const barLayout = (wl, el, dx, dy) => ({ mode: 'fixed', compact: false, x: dx, y: dy, ...((wl || {})[el] || {}) })
+
 function Palette() {
   const typeDefs = useStore((st) => st.typeDefs)
+  const wl = useStore((st) => st.viewSettings.workspaceLayout)
+  const L = barLayout(wl, 'palette', 16, 130)
+  const floating = L.mode === 'floating'
   const onDragStart = (e, tpl) => {
     e.dataTransfer.setData('application/flowtest-node', JSON.stringify(tpl))
     e.dataTransfer.effectAllowed = 'move'
   }
   return (
-    <aside className="palette">
-      <h3>Node Templates</h3>
+    <aside className={'palette' + (floating ? ' floating' : L.compact ? ' compact' : '')}
+      style={floating ? { position: 'absolute', left: L.x, top: L.y, zIndex: 45 } : undefined}>
+      {floating && <div className="drag-grip" title="Drag to move the palette" onPointerDown={startBarDrag('palette')}>⠿ Node Templates</div>}
+      {!floating && <h3>Node Templates</h3>}
       {mergedTemplates(typeDefs).map((t) => (
         <div key={t.type} className="tpl" style={{ '--tpl-color': t.color, '--icon-ink': iconInk(t.color) }} draggable
           onDragStart={(e) => onDragStart(e, t)} title={t.desc}>
           <span className="ticon">{t.icon}</span>
-          <span>{t.label}</span>
+          <span className="tlabel">{t.label}</span>
         </div>
       ))}
       <h3 style={{ marginTop: 10 }}>Tip</h3>
@@ -294,7 +318,28 @@ function ViewMenu() {
     <span className="menu-wrap">
       <button className="btn small" onClick={() => setOpen(!open)} title="Adjust what nodes display and how large">👁 View ▾</button>
       {open && (
-        <div className="dropdown" style={{ minWidth: 225 }} onMouseLeave={() => setOpen(false)}>
+        <div className="dropdown" style={{ minWidth: 250 }} onMouseLeave={() => setOpen(false)}>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace layout</div>
+          {[['toolbar', 'Toolbar'], ['palette', 'Node palette']].map(([el, label]) => {
+            const wl = vs.workspaceLayout || {}
+            const L = { mode: 'fixed', compact: false, ...(wl[el] || {}) }
+            const setL = (patch) => setVs('workspaceLayout', { ...wl, [el]: { ...L, ...patch } })
+            return (
+              <div key={el} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 11px' }}>
+                <span style={{ fontSize: 12, width: 82 }}>{label}</span>
+                <span className="seg">
+                  <button className={L.mode === 'fixed' ? 'on accent' : ''} title="Pinned in place" onClick={() => setL({ mode: 'fixed' })}>Fixed</button>
+                  <button className={L.mode === 'floating' ? 'on accent' : ''} title="Free-floating — drag it anywhere with the ⠿ grip" onClick={() => setL({ mode: 'floating' })}>Floating</button>
+                </span>
+                <label className="toggle" style={{ opacity: L.mode === 'fixed' ? 1 : 0.4 }}
+                  title="Compact: icons only — hover (or press-hold on touch) reveals the labels. Fixed bars only.">
+                  <input type="checkbox" disabled={L.mode !== 'fixed'} checked={L.mode === 'fixed' && !!L.compact}
+                    onChange={(e) => setL({ compact: e.target.checked })} />
+                  compact</label>
+              </div>
+            )
+          })}
+          <div className="sep" />
           <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Node fields</div>
           {TOGGLES.map(([k, label]) => (
             <button key={k} onClick={() => setVs(k, !vs[k])}>
@@ -1053,6 +1098,8 @@ function Canvas() {
   const edgeSelRef = useRef({ id: null, was: false, t: 0 })
   // role gating: viewers get navigation, view options, filtering and export only
   const canEdit = useStore((st) => st.session?.canEdit === true)
+  // workspace chrome layout (fixed / floating / compact) for the toolbar
+  const tbL = barLayout(s.viewSettings.workspaceLayout, 'toolbar', 10, 10)
   // viewers never sit on an unshared workflow — snap to the first shared one
   useEffect(() => {
     if (!canEdit) {
@@ -1234,7 +1281,9 @@ function Canvas() {
   return (
     <div className={'canvas-wrap' + (s.brush ? ' brushing' : '')}
       onClick={() => { setMenu(null); if (useStore.getState().wpMenu) useStore.setState({ wpMenu: null }) }}>
-      <div className="canvas-toolbar">
+      <div className={'canvas-toolbar' + (tbL.mode === 'floating' ? ' floating' : tbL.compact ? ' compact' : '')}
+        style={tbL.mode === 'floating' ? { left: tbL.x, top: tbL.y, maxWidth: 'none', zIndex: 40 } : undefined}>
+        {tbL.mode === 'floating' && <span className="drag-grip" title="Drag to move the toolbar" onPointerDown={startBarDrag('toolbar')}>⠿</span>}
         <select value={s.activeDiagramId || ''} onChange={(e) => s.setActiveDiagram(e.target.value)}>
           {(canEdit ? s.diagrams : s.diagrams.filter((d) => d.shared !== false)).map((d) => (
             <option key={d.id} value={d.id}>{d.name}{canEdit && d.shared === false ? ' 🔒' : ''}</option>

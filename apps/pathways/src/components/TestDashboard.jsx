@@ -275,6 +275,14 @@ export default function TestDashboard() {
   const [importing, setImporting] = useState(false)
   const [expandedStep, setExpandedStep] = useState(null)
   const [bugCtx, setBugCtx] = useState(null)
+  // collapsible side columns — collapse to a thin rail to maximize the workspace
+  const [collapsedCols, setCollapsedCols] = useState({ suites: false, cases: false })
+  const railTag = (key, label) => (
+    <div className="rail-tag" title={`Expand the ${label} panel`}>
+      <span className="rail-arrow">&#10095;</span>
+      <span className="rail-text">{label}</span>
+    </div>
+  )
 
   useEffect(() => {
     if (focusCaseId) {
@@ -295,7 +303,9 @@ export default function TestDashboard() {
 
   return (
     <div className={'test-layout' + (canEdit ? '' : ' readonly')}>
-      <div className="col suites">
+      <div className={'col suites' + (collapsedCols.suites ? ' collapsed' : '')}
+        onClick={collapsedCols.suites ? () => setCollapsedCols((c) => ({ ...c, suites: false })) : undefined}>
+        {collapsedCols.suites && railTag('suites', tab === 'suites' ? 'Suites' : 'Plans')}
         <div className="col-head">
           <span className="tabbtns" style={{ flex: 1 }}>
             <button className={tab === 'suites' ? 'on' : ''} onClick={() => { setTab('suites'); setCaseId(null) }}>Suites</button>
@@ -305,6 +315,8 @@ export default function TestDashboard() {
           {tab === 'suites'
             ? <button className="btn small primary" onClick={() => { const id = s.addSuite(`Suite ${s.suites.length + 1}`); setSuiteId(id) }}>＋</button>
             : <button className="btn small primary" onClick={() => { const id = s.addPlan(`Plan ${s.plans.length + 1}`); setPlanId(id) }}>＋</button>}
+          <button className="btn small" title="Collapse this panel to maximize the workspace"
+            onClick={() => setCollapsedCols((c) => ({ ...c, suites: true }))}>⮜</button>
         </div>
         <div className="col-body">
           {tab === 'suites' && (<>
@@ -356,8 +368,12 @@ export default function TestDashboard() {
       </div>
 
       {tab === 'plans' ? (
-      <div className="col cases">
+      <div className={'col cases' + (collapsedCols.cases ? ' collapsed' : '')}
+        onClick={collapsedCols.cases ? () => setCollapsedCols((c) => ({ ...c, cases: false })) : undefined}>
+        {collapsedCols.cases && railTag('cases', 'Route')}
         <div className="col-head"><h3>Planned Route</h3>
+          <button className="btn small" style={{ marginLeft: 'auto' }} title="Collapse this panel to maximize the workspace"
+            onClick={() => setCollapsedCols((c) => ({ ...c, cases: true }))}>⮜</button>
           <button className="btn small" disabled={!plan || !plan.caseIds.length}
             title="Preview this route on the workflow — read-only, nothing is recorded"
             onClick={() => s.startPlanPreview(plan.id)}>👁 Preview</button>
@@ -416,8 +432,12 @@ export default function TestDashboard() {
         </div>
       </div>
       ) : (
-      <div className="col cases">
+      <div className={'col cases' + (collapsedCols.cases ? ' collapsed' : '')}
+        onClick={collapsedCols.cases ? () => setCollapsedCols((c) => ({ ...c, cases: false })) : undefined}>
+        {collapsedCols.cases && railTag('cases', 'Cases')}
         <div className="col-head"><h3>Test Cases</h3>
+          <button className="btn small" title="Collapse this panel to maximize the workspace"
+            onClick={() => setCollapsedCols((c) => ({ ...c, cases: true }))}>⮜</button>
           <button className="btn small primary" disabled={!suite} onClick={() => { const id = s.addCase(suite.id, `Test case ${s.cases.length + 1}`); setCaseId(id) }}>＋</button></div>
         <div className="col-body">
           {!suite && <div className="empty">Select a suite.</div>}

@@ -828,3 +828,60 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
 .pw-rule.ok { color: #4ade80; border-color: rgba(74,222,128,.5); background: rgba(74,222,128,.08); }
 .confirm-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(251,191,36,.55); background: rgba(251,191,36,.08); border-radius: 9px; font-size: 12px; }
 .acct-edit { margin-top: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 9px; background: var(--bg-2); }
+
+/* ---------- workspace chrome: fixed / floating / compact bars ---------- */
+.drag-grip { cursor: grab; user-select: none; color: var(--text-dim); font-size: 13px; touch-action: none; flex-shrink: 0; }
+.drag-grip:active { cursor: grabbing; color: var(--accent); }
+.canvas-toolbar.floating { box-shadow: 0 16px 44px rgba(0,0,0,.5); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.palette.floating {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 12px;
+  box-shadow: 0 16px 44px rgba(0,0,0,.5); max-height: 72vh; height: auto;
+}
+.palette.floating .drag-grip { padding: 2px 4px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+
+/* compact toolbar: icon-only buttons that animate open to reveal their text on
+   hover / focus / press-hold (touch) */
+.canvas-toolbar.compact .btn.small {
+  max-width: 37px; overflow: hidden; white-space: nowrap; text-overflow: clip;
+  transition: max-width .28s ease;
+}
+.canvas-toolbar.compact .btn.small:hover, .canvas-toolbar.compact .btn.small:focus-visible, .canvas-toolbar.compact .btn.small:active { max-width: 240px; }
+.canvas-toolbar.compact input[placeholder="Rename + Enter"] { display: none; }
+.canvas-toolbar.compact select { max-width: 118px; }
+.canvas-toolbar.compact label.toggle {
+  max-width: 36px; overflow: hidden; white-space: nowrap; transition: max-width .28s ease;
+}
+.canvas-toolbar.compact label.toggle:hover, .canvas-toolbar.compact label.toggle:active { max-width: 240px; }
+
+/* compact palette: icon rail; hovering (or press-holding) a tile flies out its label */
+.palette.compact { width: 58px; padding: 10px 7px; overflow: visible; }
+.palette.compact h3, .palette.compact > div:not([class]) { display: none; }
+.palette.compact .tpl { padding: 6px; justify-content: center; position: relative; }
+.palette.compact .tpl .tlabel {
+  position: absolute; left: calc(100% + 10px); top: 50%;
+  transform: translateY(-50%) translateX(-8px); opacity: 0; pointer-events: none;
+  background: var(--panel); backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in srgb, var(--tpl-color, var(--accent)) 65%, transparent);
+  border-radius: 8px; padding: 4px 11px; font-size: 12px; white-space: nowrap; z-index: 80;
+  box-shadow: 0 8px 22px rgba(0,0,0,.45); transition: opacity .18s ease, transform .18s ease;
+}
+.palette.compact .tpl:hover .tlabel, .palette.compact .tpl:active .tlabel { opacity: 1; transform: translateY(-50%) translateX(0); }
+
+/* collapsible test-management columns: thin rail keeps the label, click expands */
+.col.collapsed { width: 32px !important; min-width: 32px; cursor: pointer; position: relative; overflow: hidden; }
+.col.collapsed > *:not(.rail-tag) { display: none !important; }
+.col.collapsed:hover { background: color-mix(in srgb, var(--accent) 10%, var(--bg-2)); }
+.rail-tag { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 12px; height: 100%; }
+.rail-tag .rail-arrow { color: var(--accent); font-size: 13px; }
+.rail-tag .rail-text { writing-mode: vertical-rl; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); }
+
+/* unread transaction log entries */
+.log-entry.unread { border-left: 3px solid var(--accent); }
+
+/* column collapse handles: slim control pinned to the column's right edge */
+.col { position: relative; }
+.col-head button[title*="Collapse this panel"] {
+  position: absolute; top: 50%; right: 3px; transform: translateY(-50%); z-index: 6;
+  padding: 14px 2px; font-size: 10px; line-height: 1; opacity: .55; border-radius: 7px;
+}
+.col-head button[title*="Collapse this panel"]:hover { opacity: 1; }
