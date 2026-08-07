@@ -1,42 +1,25 @@
-# Pathways.io — Workflow Diagramming & Test Suite Management
+# colecarter.io
 
-A workflow diagram designer with an integrated test management dashboard: role-based access, node templates and custom types, global formatting and themes, per-step execution mapping with in-diagram popups, bug tracking pinned to the diagram, plan runs with downloadable execution summary reports, and multi-format exports.
+Monorepo for the applications hosted on **colecarter.io**. Each application lives under `apps/` and deploys to its own subpath; `site/` is the domain's portal landing page.
 
-## Run in development
-
-```bash
-npm install
-npm run dev        # opens on http://localhost:5173
-```
-
-## Build for production
-
-```bash
-npm run build      # produces a single self-contained dist/index.html
-```
+| Path | What it is | Deployed at |
+|---|---|---|
+| `site/` | Domain portal (app launcher tiles) | `/` |
+| `apps/pathways/` | **Pathways.io** — workflow diagramming & test suite management | `/pathways/` |
 
 ## Deployment
 
-Pushing to `main` triggers the GitHub Actions workflow in `.github/workflows/deploy.yml`, which builds the app and publishes it to GitHub Pages. To serve it on a custom domain, add a `CNAME` file under `public/` containing the domain (e.g. `pathways.example.com`) and point DNS at GitHub Pages.
+Pushing to `main` runs `.github/workflows/deploy.yml`: it builds every app, assembles the site (`site/` at the root, each app's build in its subpath), and publishes to GitHub Pages. Enable once in **Settings → Pages → Source: GitHub Actions**.
 
-## Access & roles (prototype)
+For the custom domain, add a `CNAME` file to `site/` containing the domain and configure DNS per the hosting plan (A records for the apex → GitHub Pages, `www` CNAME → `colebucket06.github.io`).
 
-The landing page gates the app behind sign-in or an access request (routed to admin@colecarter.io). Roles: **Administrator** (full control, account management), **User** (edit rights on projects they own or were shared with editor permissions), **Viewer** (read-only; also reachable without sign-in through view-only share links scoped to selected suites). Authentication is currently simulated client-side; real enforcement arrives with the Phase 2 backend.
+## Developing an app
 
-## Stack
-
-- React 18 + Vite (single-file production build via `vite-plugin-singlefile`)
-- @xyflow/react (React Flow 12) for the diagram canvas
-- Zustand for state
-- dagre for auto-layout; jsPDF & XLSX for exports
-
-## Project structure
-
+```bash
+cd apps/pathways
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # single-file production build in dist/
 ```
-src/
-  App.jsx                 shell, landing/launcher, profile & admin panels
-  store.js                Zustand store: diagrams, suites, cases, plans, bugs, auth, themes
-  components/             canvas, nodes, edges, test dashboard, runner, bugs, landing
-  utils/                  theme system, exporters, diagram export
-public/favicon.svg        Pathways.io icon
-```
+
+See `apps/pathways/README.md` for application details.

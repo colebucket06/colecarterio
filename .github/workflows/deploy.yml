@@ -1,4 +1,4 @@
-name: Build & Deploy to GitHub Pages
+name: Build & Deploy colecarter.io
 
 on:
   push:
@@ -23,11 +23,23 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: apps/pathways/package-lock.json
+
+      # ---- Pathways.io ----
       - run: npm ci
+        working-directory: apps/pathways
       - run: npm run build
+        working-directory: apps/pathways
+
+      # ---- assemble the site: portal at /, each app in its own subpath ----
+      - name: Assemble site
+        run: |
+          mkdir -p _site/pathways
+          cp -r site/* _site/
+          cp -r apps/pathways/dist/* _site/pathways/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: _site
 
   deploy:
     needs: build

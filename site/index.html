@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>colecarter.io — Applications</title>
+  <link rel="icon" type="image/svg+xml" href="/pathways/favicon.svg" />
+  <style>
+    :root { --bg:#0b1020; --panel:rgba(23,32,63,.85); --border:rgba(120,140,200,.25); --text:#e6ebff; --dim:#8b96c2; --accent:#4f7cff; }
+    * { box-sizing:border-box }
+    body {
+      margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:34px;
+      font-family:'Segoe UI',system-ui,-apple-system,sans-serif; color:var(--text);
+      background: radial-gradient(1100px 650px at 50% -15%, #17224e 0%, var(--bg) 60%);
+    }
+    .brand { font-size:15px; letter-spacing:5px; color:var(--dim); text-transform:uppercase; }
+    .apps { display:flex; gap:26px; flex-wrap:wrap; justify-content:center; padding:0 20px; }
+    a.tile {
+      display:flex; flex-direction:column; align-items:center; gap:14px; text-decoration:none; color:var(--text);
+      padding:30px 40px; border:1px solid var(--border); border-radius:18px; background:var(--panel);
+      box-shadow:0 14px 40px rgba(0,0,0,.35); transition:all .18s;
+    }
+    a.tile:hover { transform:translateY(-3px); border-color:var(--accent); box-shadow:0 0 26px rgba(79,124,255,.45), 0 14px 40px rgba(0,0,0,.35); }
+    a.tile img, a.tile svg { width:96px; height:96px; display:block; }
+    .label { font-size:14px; font-weight:800; letter-spacing:3px; text-transform:uppercase; }
+    .tag { font-size:11px; color:var(--dim); }
+    footer { position:fixed; bottom:14px; font-size:11.5px; color:var(--dim); }
+  </style>
+</head>
+<body>
+  <div class="brand">colecarter.io</div>
+  <div class="apps">
+    <a class="tile" href="/pathways/">
+      <svg viewBox="0 0 64 64">
+        <defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+        <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#pg)"/>
+        <path d="M17 18 C 30 18, 22 32, 32 32 C 42 32, 34 46, 45 46" stroke="#fff" stroke-width="3.2" fill="none" stroke-linecap="round" opacity=".92"/>
+        <circle cx="16" cy="18" r="6.2" fill="#fff"/><circle cx="16" cy="18" r="2.6" fill="#22317a"/>
+        <rect x="26.2" y="26.2" width="11.6" height="11.6" rx="2.4" transform="rotate(45 32 32)" fill="#fff"/>
+        <rect x="37.5" y="38" width="17" height="16" rx="4.5" fill="#fff"/>
+        <path d="M41.5 46 l3.2 3.2 l6.4 -6.6" stroke="#16a34a" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="label">Pathways.io</span>
+      <span class="tag">Workflow diagramming · test management</span>
+    </a>
+    <!-- future applications: add a tile per app, deployed under its own subpath -->
+  </div>
+  <footer>© colecarter.io</footer>
+</body>
+</html>
