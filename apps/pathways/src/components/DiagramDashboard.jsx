@@ -3,6 +3,7 @@ import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFl
 import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, mergedTemplates, mergedTemplate } from '../store'
 import FlowNode, { SectionNode, StickyNode, iconInk } from './FlowNode'
 import { RunSummaryModal, sevColor } from './Bugs'
+import MaximoWizard from './MaximoWizard'
 import AttachmentManager from './AttachmentManager'
 import PlanRunner, { branchPoints } from './PlanRunner'
 import PlanPreview from './PlanPreview'
@@ -1113,6 +1114,7 @@ function Canvas() {
   const [selection, setSelection] = useState(null)
   const [selectedIds, setSelectedIds] = useState([])
   const [exporting, setExporting] = useState(false)
+  const [maximo, setMaximo] = useState(false)
   const [formatting, setFormatting] = useState(false)
   const [brushConfirm, setBrushConfirm] = useState(null) // { ids, mismatched: [node] }
 
@@ -1307,6 +1309,10 @@ function Canvas() {
         <FilterMenu matchCount={matchCount} totalCount={(diagram?.nodes || []).length} />
         {canEdit && <HiddenMenu />}
         <button className="btn small" onClick={() => setExporting(true)} title="Export diagram — PDF, Visio, draw.io/Lucidchart, SVG, PNG, Mermaid">⤓ Export</button>
+        {canEdit && (
+          <button className="btn small" onClick={() => setMaximo(true)}
+            title="Import workflows from IBM Maximo — WFPROCESS/WFNODE/WFACTION(+WFASSIGNMENT/WFCONDITION/WFSUBPROCESS) exports become diagrams with attribution">⇪ Maximo</button>
+        )}
         <label className="toggle"><input type="checkbox" checked={s.showCoverage} onChange={(e) => s.setShowCoverage(e.target.checked)} />
           test coverage</label>
         {canEdit && diagram && (
@@ -1408,6 +1414,7 @@ function Canvas() {
       {run ? <PlanRunner /> : preview ? <PlanPreview /> : selection && canEdit && <PropsPanel selection={selection} onClose={() => setSelection(null)} />}
       {exporting && diagram && <ExportDialog diagram={diagram} getNodes={getNodes} onClose={() => setExporting(false)} />}
       {formatting && <FormatModal selectedIds={selectedIds} onClose={() => setFormatting(false)} />}
+      {maximo && <MaximoWizard onClose={() => setMaximo(false)} />}
     </div>
   )
 }

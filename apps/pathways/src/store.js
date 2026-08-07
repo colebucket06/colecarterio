@@ -1404,6 +1404,22 @@ export const useStore = create((set, get) => ({
     get().log('project', 'delete', `Deleted project "${p.name}"`)
   },
 
+  // Maximo import: place built diagrams into a new or existing project
+  importMaximoDiagrams: (dest, built) => {
+    if (dest.type === 'new') {
+      get().addProjectSpace(dest.name)
+      // the fresh project starts with an empty default diagram — the imports replace it
+      set((s) => ({ diagrams: [] }))
+    } else if (dest.id && dest.id !== get().project.id) {
+      get().switchProject(dest.id)
+    }
+    const diags = built.map((b) => b.diagram)
+    set((s) => ({ diagrams: [...s.diagrams, ...diags], activeDiagramId: diags[0]?.id || s.activeDiagramId, page: 'diagram' }))
+    built.forEach((b) => get().cacheTerm(b.meta.processname))
+    get().log('project', 'import',
+      `Imported ${diags.length} workflow diagram(s) from Maximo: ${built.map((b) => `${b.diagram.name}${b.meta.viaSub ? ' (subprocess)' : ''}`).join(', ')}`)
+  },
+
   // ---- community collaborators: per-project members (existing) or platform-wide ----
   globalCollaborators: [], // [{ id, name, email, role: 'viewer' | 'editor' }] — apply to every project
   addGlobalCollaborator: (name, email, role) => {
