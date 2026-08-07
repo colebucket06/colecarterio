@@ -357,7 +357,7 @@ function ProjectsManager() {
   return (
     <div>
       <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
-        <input placeholder="New project name" value={name} style={{ flex: 1 }}
+        <input placeholder="New project name" value={name} style={{ flex: 1 }} list="pw-terms"
           onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />
         <button className="btn small primary" disabled={!name.trim()} onClick={create}>＋ Add project</button>
       </div>
@@ -820,7 +820,8 @@ function ProfileModal({ onClose }) {
             <input value={s.currentUser.email} onChange={(e) => useStore.setState({ currentUser: { ...s.currentUser, email: e.target.value } })} /></div>
         </div>
         <div className="field"><label>Project name</label>
-          <input value={s.project.name} onChange={(e) => s.updateProject({ name: e.target.value })} /></div>
+          <input value={s.project.name} list="pw-terms" onChange={(e) => s.updateProject({ name: e.target.value })}
+            onBlur={(e) => s.cacheTerm(e.target.value)} /></div>
 
         <Fold title="📁 Projects" badge={<span className="tag project">{s.projectsHub.length + 1}</span>}>
           <ProjectsManager />
@@ -871,6 +872,25 @@ function ProfileModal({ onClose }) {
         <Fold title="🌐 Community Collaborators"
           badge={s.globalCollaborators.length > 0 ? <span className="tag project">{s.globalCollaborators.length} global</span> : null}>
           <CommunityCollaborators />
+        </Fold>
+
+        <Fold title="🍪 Browser Cache & Cookies"
+          badge={s.termsCache.length > 0 ? <span className="tag project">{s.termsCache.length} cached terms</span> : null}>
+          <label className="toggle" style={{ display: 'flex', marginBottom: 6 }}>
+            <input type="checkbox" checked={!!s.persistPrefs.rememberLogin}
+              onChange={(e) => { s.setPersistPref('rememberLogin', e.target.checked); if (e.target.checked && s.session?.email) { const a = s.accounts.find((x) => x.email === s.session.email); if (a) s.saveLogin(a.email, a.password || '') } }} />
+            Remember my sign-in on this device (cookie + browser cache)</label>
+          <label className="toggle" style={{ display: 'flex', marginBottom: 8 }}>
+            <input type="checkbox" checked={s.persistPrefs.cacheTerms !== false}
+              onChange={(e) => s.setPersistPref('cacheTerms', e.target.checked)} />
+            Cache common terms & phrases for suggestions (projects, suites, cases, plans, steps)</label>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button className="btn small" disabled={!s.termsCache.length} onClick={() => s.clearTermsCache()}>🗑 Clear cached terms ({s.termsCache.length})</button>
+            <button className="btn small" onClick={() => s.clearSavedLogin()}>🗑 Clear saved sign-in</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
+            Cached terms appear as autocomplete suggestions when naming projects, suites, cases, and plans, and when writing test steps. Everything is stored only in this browser; in sandboxed previews (or strict incognito) the cache falls back to memory for the session. Saved sign-in is a convenience for this prototype — hashed session tokens replace it with the Phase 2 backend.
+          </div>
         </Fold>
 
         {['owner', 'admin'].includes(s.session?.role) && (
@@ -982,6 +1002,9 @@ export default function App() {
         <span style={{ fontSize: 11 }}>{showLog ? '▲ hide log' : '▼ view log'}</span>
       </div>
 
+      <datalist id="pw-terms">
+        {s.termsCache.map((t) => <option key={t} value={t} />)}
+      </datalist>
       <main className="main">
         {s.page === 'diagram' ? <DiagramDashboard /> : <TestDashboard />}
         {showLog && <LogPanel onClose={() => setShowLog(false)} />}

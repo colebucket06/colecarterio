@@ -24,13 +24,22 @@ export function PathwaysIcon({ size = 64 }) {
 // ---- access landing page: sign in, or request access (routed to admin@colecarter.io) ----
 export function Landing() {
   const s = useStore()
-  const [email, setEmail] = useState('')
-  const [pw, setPw] = useState('')
+  const saved = s.loadSavedLogin()
+  const [email, setEmail] = useState(saved?.email || '')
+  const [pw, setPw] = useState(saved?.password || '')
+  const [remember, setRemember] = useState(!!saved)
   const [loginErr, setLoginErr] = useState(null)
   const [form, setForm] = useState({ firstName: '', lastName: '', business: '', email: '', justification: '' })
   const [errs, setErrs] = useState({})
   const [sent, setSent] = useState(null)
-  const doLogin = () => setLoginErr(s.login(email, pw) || null)
+  const doLogin = () => {
+    const err = s.login(email, pw)
+    setLoginErr(err || null)
+    if (!err) {
+      if (remember) s.saveLogin(email.trim(), pw)
+      else s.clearSavedLogin()
+    }
+  }
   const submit = () => {
     const e = {}
     if (!form.firstName.trim()) e.firstName = true
@@ -74,6 +83,10 @@ export function Landing() {
             <input type="password" value={pw} placeholder="••••••••••••••••"
               onChange={(e) => { setPw(e.target.value); setLoginErr(null) }}
               onKeyDown={(e) => e.key === 'Enter' && doLogin()} /></div>
+          <label className="toggle" style={{ display: 'flex', marginBottom: 6 }}
+            title="Saves your sign-in on this device (browser cache + cookie) so the fields prefill next visit. Convenience only — proper session tokens arrive with the Phase 2 backend.">
+            <input type="checkbox" checked={remember} onChange={(e) => { setRemember(e.target.checked); if (!e.target.checked) s.clearSavedLogin() }} />
+            🍪 Remember me on this device</label>
           {loginErr && <div className="field-err">⚠ {loginErr}</div>}
           <button className="btn primary" style={{ width: '100%', marginTop: 6 }} onClick={doLogin}>→ Sign in</button>
           <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8 }}>

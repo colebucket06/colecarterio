@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { save as persistSave, load as persistLoad, remove as persistRemove, setCookie, delCookie } from './utils/persist'
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
 
@@ -146,6 +147,41 @@ export const useStore = create((set, get) => ({
     pathColors: { positive: '#22c55e', negative: '#ef4444' },
     showComments: true,
   },
+  // ---- browser cache & cookies: opt-in credential remember + common-terms cache ----
+  persistPrefs: persistLoad('prefs', { rememberLogin: false, cacheTerms: true }),
+  setPersistPref: (k, v) => {
+    const p = { ...get().persistPrefs, [k]: v }
+    set({ persistPrefs: p })
+    persistSave('prefs', p)
+    if (k === 'cacheTerms' && !v) { set({ termsCache: [] }); persistRemove('terms') }
+    if (k === 'rememberLogin' && !v) get().clearSavedLogin()
+  },
+  // frequently used names / phrases, suggested via datalist autocomplete on
+  // suite / case / plan / project / step inputs across the application
+  termsCache: persistLoad('terms', []),
+  cacheTerm: (text) => {
+    if (!get().persistPrefs.cacheTerms) return
+    const t = (text || '').trim()
+    if (t.length < 3 || t.length > 90) return
+    const list = [t, ...get().termsCache.filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 200)
+    set({ termsCache: list })
+    persistSave('terms', list)
+  },
+  clearTermsCache: () => { set({ termsCache: [] }); persistRemove('terms') },
+  // remembered sign-in (opt-in): email mirrored to a cookie, credentials in local storage
+  saveLogin: (email, password) => {
+    persistSave('cred', { e: email, p: btoa(unescape(encodeURIComponent(password))) })
+    setCookie('pw_email', email, 60)
+    const p = { ...get().persistPrefs, rememberLogin: true }
+    set({ persistPrefs: p }); persistSave('prefs', p)
+  },
+  loadSavedLogin: () => {
+    const c = persistLoad('cred', null)
+    if (c?.e) { try { return { email: c.e, password: decodeURIComponent(escape(atob(c.p || ''))) } } catch { return { email: c.e, password: '' } } }
+    return null
+  },
+  clearSavedLogin: () => { persistRemove('cred'); delCookie('pw_email') },
+
   // transaction log: mark prior entries read, or clear the history entirely
   markLogRead: () => set((s) => ({ changeLog: s.changeLog.map((e) => ({ ...e, read: true })) })),
   clearLog: () => {
@@ -1347,6 +1383,7 @@ export const useStore = create((set, get) => ({
       changeLog: [], notifications: [], typeFormats: {}, bugs: [],
     })
     get().refreshSessionPerms()
+    get().cacheTerm(name)
     get().log('project', 'create', `Created project "${(name || '').trim() || 'New Project'}"`)
     return pid
   },

@@ -341,7 +341,8 @@ export default function TestDashboard() {
         {tab === 'suites' && suite && (
           <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', maxHeight: '46%', overflowY: 'auto' }}>
             <div className="field"><label>Suite name</label>
-              <input value={suite.name} onChange={(e) => s.updateSuite(suite.id, { name: e.target.value })} /></div>
+              <input value={suite.name} list="pw-terms" onChange={(e) => s.updateSuite(suite.id, { name: e.target.value })}
+                onBlur={(e) => s.cacheTerm(e.target.value)} /></div>
             {canEdit && (
               <label className="toggle" style={{ display: 'flex', marginBottom: 8 }}
                 title="Unshared suites (and everything in them) are hidden from viewers and community members">
@@ -358,7 +359,8 @@ export default function TestDashboard() {
         {tab === 'plans' && plan && (
           <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', maxHeight: '46%', overflowY: 'auto' }}>
             <div className="field"><label>Plan name</label>
-              <input value={plan.name} onChange={(e) => s.updatePlan(plan.id, { name: e.target.value })} /></div>
+              <input value={plan.name} list="pw-terms" onChange={(e) => s.updatePlan(plan.id, { name: e.target.value })}
+                onBlur={(e) => s.cacheTerm(e.target.value)} /></div>
             <div className="field"><label>Description</label>
               <input value={plan.description} onChange={(e) => s.updatePlan(plan.id, { description: e.target.value })} /></div>
             <button className="btn small danger"
@@ -475,8 +477,9 @@ export default function TestDashboard() {
         {tc && (
           <div className="detail-body">
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input style={{ fontSize: 17, fontWeight: 700, flex: 1 }} value={tc.name}
-                onChange={(e) => s.updateCase(tc.id, { name: e.target.value })} />
+              <input style={{ fontSize: 17, fontWeight: 700, flex: 1 }} value={tc.name} list="pw-terms"
+                onChange={(e) => s.updateCase(tc.id, { name: e.target.value })}
+                onBlur={(e) => s.cacheTerm(e.target.value)} />
               {canEdit && (
                 <label className="toggle" title="Unshared cases are hidden from viewers and community members">
                   <input type="checkbox" checked={tc.shared !== false} onChange={(e) => s.setCaseShared(tc.id, e.target.checked)} />
@@ -511,10 +514,12 @@ export default function TestDashboard() {
                   <div className="step-row">
                     <span className="num" style={{ cursor: 'pointer' }} title="Requirements & attachments"
                       onClick={() => setExpandedStep(expandedStep === st.id ? null : st.id)}>{expandedStep === st.id ? '▾' : i + 1}</span>
-                    <input placeholder="Test step — what the tester does" value={st.action} title="Test Step (action)"
-                      onChange={(e) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, action: e.target.value } : x)) })} />
-                    <input placeholder="Expected result — what should happen" value={st.expected} title="Expected Result"
-                      onChange={(e) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, expected: e.target.value } : x)) })} />
+                    <input placeholder="Test step — what the tester does" value={st.action} title="Test Step (action)" list="pw-terms"
+                      onChange={(e) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, action: e.target.value } : x)) })}
+                      onBlur={(e) => s.cacheTerm(e.target.value)} />
+                    <input placeholder="Expected result — what should happen" value={st.expected} title="Expected Result" list="pw-terms"
+                      onChange={(e) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, expected: e.target.value } : x)) })}
+                      onBlur={(e) => s.cacheTerm(e.target.value)} />
                     <button className="btn small" style={{ marginTop: 3, opacity: st.shared === false ? 1 : undefined }}
                       title={st.shared === false ? 'This step is hidden from viewers — click to share it' : 'Shared with viewers — click to hide this step'}
                       onClick={() => s.setStepShared(tc.id, st.id, st.shared === false)}>{st.shared === false ? '🔒' : '🌐'}</button>
