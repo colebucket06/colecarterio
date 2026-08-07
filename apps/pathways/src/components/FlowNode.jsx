@@ -96,6 +96,13 @@ export default function FlowNode({ id, data, selected }) {
         </div>
         {vs.showDesc && data.description && <div className="ndesc">{data.description}</div>}
         {vs.showConfig && data.config && <div className="nconf">{data.config}</div>}
+        {vs.showAttrs && (data.attrs || []).some((a) => a.k || a.v) && (
+          <div className="nattrs">
+            {data.attrs.filter((a) => a.k || a.v).map((a, i) => (
+              <div className="nattr-row" key={i}><span className="k">{a.k}</span><span className="v">{a.v}</span></div>
+            ))}
+          </div>
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="sr" />
       <Handle type="source" position={Position.Bottom} id="sb" />

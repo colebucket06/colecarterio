@@ -142,10 +142,12 @@ export const useStore = create((set, get) => ({
     get().log('diagram', 'schema', `Removed ${kind} attribute "${def?.name}"`)
   },
   viewSettings: {
-    showIcons: true, showSeq: true, showDesc: false, showConfig: false, showAttachments: true, fontScale: 1,
+    showIcons: true, showSeq: true, showDesc: false, showConfig: false, showAttachments: true, showAttrs: false, fontScale: 1,
     edgeSeparation: true, edgePadding: 14,
     pathColors: { positive: '#22c55e', negative: '#ef4444' },
     showComments: true,
+    // path attribution field visibility
+    showEdgeLabels: true, showEdgeLogic: false, pathClassColors: true,
   },
   // ---- browser cache & cookies: opt-in credential remember + common-terms cache ----
   persistPrefs: persistLoad('prefs', { rememberLogin: false, cacheTerms: true }),
@@ -757,6 +759,21 @@ export const useStore = create((set, get) => ({
     ...d,
     edges: d.edges.map((e) => (e.id === edgeId ? { ...e, data: { ...e.data, points } } : e)),
   })),
+  // label position along the path as a length fraction 0..1 (null → back to auto midpoint).
+  // History is pushed by the caller at drag start, not per-move.
+  setEdgeLabelPos: (edgeId, t) => get().updateActive((d) => ({
+    ...d,
+    edges: d.edges.map((e) => (e.id === edgeId ? { ...e, data: { ...e.data, labelPos: t == null ? null : { t } } } : e)),
+  })),
+  // apply one label style to every path in the active diagram
+  formatAllEdgeLabels: (labelStyle) => {
+    get().pushHistory('Format all path labels')
+    get().updateActive((d) => ({
+      ...d,
+      edges: d.edges.map((e) => ({ ...e, data: { ...e.data, labelStyle } })),
+    }))
+    get().log('diagram', 'edit-edge', 'Applied label formatting to all connection paths')
+  },
   moveEdgePoint: (edgeId, index, point) => get().updateActive((d) => ({
     ...d,
     edges: d.edges.map((e) => (e.id === edgeId

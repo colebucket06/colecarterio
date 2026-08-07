@@ -889,3 +889,17 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
 /* import hub format cards */
 .import-card { display: flex; gap: 12px; align-items: center; padding: 11px 13px; border: 1px solid var(--border); border-radius: 11px; margin-bottom: 8px; cursor: pointer; transition: all .15s; background: var(--bg-2); }
 .import-card:hover { border-color: var(--accent); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 30%, transparent); transform: translateY(-1px); }
+
+/* ---- path label pills: draggable/pinnable + formattable; optional logic sub-line ---- */
+.sep-edge-label { cursor: grab; user-select: none; max-width: 260px; }
+.sep-edge-label:active { cursor: grabbing; }
+.sep-edge-logic {
+  font-size: 0.82em; color: var(--text-dim); font-weight: 400; font-style: normal;
+  border-top: 1px solid var(--border); margin-top: 2px; padding-top: 1px; white-space: normal; max-width: 220px;
+}
+
+/* ---- on-node custom attribute rows (👁 View → Custom attributes) ---- */
+.nattrs { margin-top: 3px; border-top: 1px dashed color-mix(in srgb, currentColor 25%, transparent); padding-top: 2px; }
+.nattr-row { display: flex; gap: 6px; font-size: 0.78em; line-height: 1.35; opacity: 0.85; }
+.nattr-row .k { font-weight: 600; white-space: nowrap; }
+.nattr-row .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

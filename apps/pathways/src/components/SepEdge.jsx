@@ -15,6 +15,32 @@ import { useStore } from '../store'
 
 const SNAP = 14 // flow-units within which a dragged point snaps to another path's point
 
+// sample an SVG path string into N evenly-spaced points (with their length fraction t).
+// Measured through a hidden svg appended to the document so getTotalLength is reliable.
+const samplePath = (d, n = 120) => {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden'
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  el.setAttribute('d', d)
+  svg.appendChild(el)
+  document.body.appendChild(svg)
+  const out = []
+  try {
+    const L = el.getTotalLength()
+    for (let i = 0; i <= n; i++) {
+      const p = el.getPointAtLength((L * i) / n)
+      out.push({ t: i / n, x: p.x, y: p.y })
+    }
+  } catch { /* zero-length path */ }
+  document.body.removeChild(svg)
+  return out
+}
+const nearest = (samples, x, y) => {
+  let best = samples[0]
+  for (const s of samples) if (Math.hypot(s.x - x, s.y - y) < Math.hypot(best.x - x, best.y - y)) best = s
+  return best
+}
+
 export default function SepEdge(props) {
   const {
     id, source, target, sourceHandleId, targetHandleId,
@@ -251,13 +277,70 @@ export default function SepEdge(props) {
           <title>Drag to move (snaps to other paths' points) · double-click to pick up & drop elsewhere on the path · right-click for cut/copy/paste/delete</title>
         </circle>
       ))}
-      {label && (
-        <EdgeLabelRenderer>
-          <div className="sep-edge-label" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
-            {label}
-          </div>
-        </EdgeLabelRenderer>
-      )}
+      {label && vs.showEdgeLabels !== false && (() => {
+        // ---- label pill: pinned position, drag-to-relocate, per-path formatting ----
+        const t = data?.labelPos?.t
+        let lx = labelX, ly = labelY
+        if (t != null) {
+          const svgPt = samplePath(path, 120)
+          if (svgPt.length) {
+            const i = Math.round(Math.min(1, Math.max(0, t)) * (svgPt.length - 1))
+            lx = svgPt[i].x; ly = svgPt[i].y
+          }
+        }
+        const ls = data?.labelStyle || {}
+        const style = {
+          transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+          fontSize: (ls.size || 11),
+          textAlign: ls.align || 'center',
+          ...(ls.bold ? { fontWeight: 700 } : {}),
+          ...(ls.italic ? { fontStyle: 'italic' } : {}),
+          ...(ls.color ? { color: ls.color } : {}),
+          ...(ls.bg ? { background: ls.bg } : {}),
+          ...(ls.outline ? { borderColor: ls.outline } : {}),
+          ...(ls.wrap ? { maxWidth: 150, whiteSpace: 'normal' } : {}),
+        }
+        const onLabelDown = (e) => {
+          if (e.button !== 0) return
+          e.stopPropagation()
+          const samples = samplePath(path, 140)
+          if (!samples.length) return
+          // squared-path points are pin targets: labels snap to (and stay on) them
+          const pinTs = points.map((pt) => nearest(samples, pt.x, pt.y).t)
+          const startPos = { x: e.clientX, y: e.clientY }
+          let engaged = false
+          const onMove = (ev) => {
+            if (!engaged && Math.hypot(ev.clientX - startPos.x, ev.clientY - startPos.y) < 3) return
+            if (!engaged) { engaged = true; useStore.getState().pushHistory('Move path label', `lbl:${id}`) }
+            const f = screenToFlowPosition({ x: ev.clientX, y: ev.clientY })
+            let tt = nearest(samples, f.x, f.y).t
+            for (const p of pinTs) if (Math.abs(p - tt) < 0.03) { tt = p; break }
+            useStore.getState().setEdgeLabelPos(id, Math.round(tt * 1000) / 1000)
+          }
+          const onUp = () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup', onUp)
+            if (engaged) useStore.getState().log('diagram', 'edit-edge', 'Relocated path label', id)
+          }
+          window.addEventListener('pointermove', onMove)
+          window.addEventListener('pointerup', onUp)
+        }
+        return (
+          <EdgeLabelRenderer>
+            <div className="sep-edge-label" style={style}
+              onPointerDown={onLabelDown}
+              onDoubleClick={(e) => {
+                e.stopPropagation()
+                useStore.getState().pushHistory('Reset path label position', `lbl:${id}`)
+                useStore.getState().setEdgeLabelPos(id, null)
+              }}
+              title="Drag to relocate along the path (snaps to path points) · double-click to re-center">
+              {label}
+              {!!vs.showEdgeLogic && data?.condition && <div className="sep-edge-logic">{data.condition}</div>}
+            </div>
+          </EdgeLabelRenderer>
+        )
+      })()}
     </>
   )
 }

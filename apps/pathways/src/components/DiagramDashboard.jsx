@@ -394,7 +394,15 @@ function ViewMenu() {
     ['showDesc', 'Description text'],
     ['showConfig', 'Configuration details'],
     ['showAttachments', 'Attachment badge'],
+    ['showAttrs', 'Custom attributes'],
   ]
+  // path attribution field types — labels, logic, classification coloring
+  const PATH_TOGGLES = [
+    ['showEdgeLabels', 'Path labels', true, 'The label pill shown on each connection path'],
+    ['showEdgeLogic', 'Path logic under labels', false, 'Show the path condition / attribution (Action codes, TRUE-FALSE routes, Option numbers) beneath each label'],
+    ['pathClassColors', 'Classification colors', true, 'Color positive routes green and negative routes red — off renders every path in the neutral color'],
+  ]
+  const pathVal = (k, def) => (vs[k] == null ? def : !!vs[k])
   const scale = vs.fontScale || 1
   const setScale = (v) => setVs('fontScale', Math.round(Math.min(1.6, Math.max(0.8, v)) * 10) / 10)
   return (
@@ -427,6 +435,13 @@ function ViewMenu() {
           {TOGGLES.map(([k, label]) => (
             <button key={k} onClick={() => setVs(k, !vs[k])}>
               <span style={{ width: 16 }}>{vs[k] ? '✓' : ''}</span>{label}
+            </button>
+          ))}
+          <div className="sep" />
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path fields</div>
+          {PATH_TOGGLES.map(([k, label, def, tip]) => (
+            <button key={k} title={tip} onClick={() => setVs(k, !pathVal(k, def))}>
+              <span style={{ width: 16 }}>{pathVal(k, def) ? '✓' : ''}</span>{label}
             </button>
           ))}
           <div className="sep" />
@@ -1034,6 +1049,71 @@ function ExportDialog({ diagram, getNodes, onClose }) {
   )
 }
 
+// ---- connection-path label formatting: size, bold/italic, justification,
+// colors, and position along the path — mirrors node/path format options ----
+function EdgeLabelFormat({ edge }) {
+  const s = useStore()
+  const [open, setOpen] = useState(false)
+  const ls = edge.data?.labelStyle || {}
+  const setLs = (patch) => s.updateEdge(edge.id, { data: { labelStyle: { ...ls, ...patch } } })
+  const t = edge.data?.labelPos?.t
+  const size = ls.size || 11
+  return (
+    <div className="field">
+      <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }} onClick={() => setOpen(!open)}>
+        <span style={{ width: 14 }}>{open ? '▾' : '▸'}</span>Label Formatting & Position
+      </label>
+      {open && (<>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+          <span className="seg">
+            <button title="Smaller" disabled={size <= 9} onClick={() => setLs({ size: size - 1 })}>A−</button>
+            <button title="Larger" disabled={size >= 20} onClick={() => setLs({ size: size + 1 })}>A＋</button>
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)', width: 30 }}>{size}px</span>
+          <span className="seg">
+            <button className={ls.bold ? 'on accent' : ''} style={{ fontWeight: 700 }} title="Bold" onClick={() => setLs({ bold: !ls.bold })}>B</button>
+            <button className={ls.italic ? 'on accent' : ''} style={{ fontStyle: 'italic' }} title="Italic" onClick={() => setLs({ italic: !ls.italic })}>I</button>
+            <button className={ls.wrap ? 'on accent' : ''} title="Wrap long labels onto multiple lines" onClick={() => setLs({ wrap: !ls.wrap })}>⏎</button>
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Justify</span>
+          <span className="seg">
+            {[['left', '⇤'], ['center', '↔'], ['right', '⇥']].map(([v, g]) => (
+              <button key={v} className={(ls.align || 'center') === v ? 'on accent' : ''} title={`Justify text ${v}`}
+                onClick={() => setLs({ align: v })}>{g}</button>
+            ))}
+          </span>
+        </div>
+        <div className="fmt-sub"><label>Text color</label>
+          <ColorCore color={ls.color || ''} onChange={(c) => setLs({ color: c })} /></div>
+        <div className="fmt-sub"><label>Background</label>
+          <ColorCore color={ls.bg || ''} onChange={(c) => setLs({ bg: c })} /></div>
+        <div className="fmt-sub"><label>Outline</label>
+          <ColorCore color={ls.outline || ''} onChange={(c) => setLs({ outline: c })} /></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '7px 0' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>Position</span>
+          <input type="range" min="2" max="98" step="1" style={{ flex: 1, padding: 0 }}
+            value={Math.round((t ?? 0.5) * 100)}
+            onChange={(e) => s.setEdgeLabelPos(edge.id, Number(e.target.value) / 100)} />
+          <span style={{ fontSize: 11, width: 32, textAlign: 'right' }}>{Math.round((t ?? 0.5) * 100)}%</span>
+          <button className="btn small" title="Re-center on the path" disabled={t == null}
+            onClick={() => s.setEdgeLabelPos(edge.id, null)}>↺</button>
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginBottom: 7 }}>
+          Labels can also be dragged along the path on the canvas — they pin to manual path points when dragged near one. Double-click a label to re-center it.
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn small" onClick={() => s.formatAllEdgeLabels({ ...ls })}
+            title="Apply this label formatting to every connection path in the diagram">⧉ Apply to all paths</button>
+          <button className="btn small" disabled={!Object.keys(ls).length}
+            onClick={() => s.updateEdge(edge.id, { data: { labelStyle: null } }, 'Reset label formatting')}>✕ Reset</button>
+        </div>
+      </>)}
+    </div>
+  )
+}
+
 function PropsPanel({ selection, onClose }) {
   const s = useStore()
   const diagram = s.diagrams.find((d) => d.id === s.activeDiagramId)
@@ -1130,6 +1210,7 @@ function PropsPanel({ selection, onClose }) {
       {edge && (<>
         <div className="field"><label>Label</label>
           <input value={edge.label || ''} onChange={(e) => s.updateEdge(edge.id, { label: e.target.value })} /></div>
+        {edge.label && <EdgeLabelFormat edge={edge} />}
         <div className="field"><label>Path Condition (logic)</label>
           <textarea rows={2} placeholder="e.g. auth.status == APPROVED" value={edge.data?.condition || ''}
             onChange={(e) => s.updateEdge(edge.id, { data: { condition: e.target.value } })} /></div>
@@ -1300,6 +1381,7 @@ function Canvas() {
     [diagram, covered, runIds, stepIds, previewIds, branchNodeIds, ghostNodeIds, bugsByNode, showComments],
   )
   const pathColors = s.viewSettings.pathColors || {}
+  const classColors = s.viewSettings.pathClassColors !== false
   const edges = useMemo(
     () => (diagram?.edges || []).map((e) => {
       const base = { ...e, type: 'sep' }
@@ -1314,12 +1396,14 @@ function Canvas() {
       if (previewIds.has(e.id) || (previewIds.has(e.source) && previewIds.has(e.target)))
         return { ...base, style: { stroke: '#a855f7', strokeWidth: 2.8 }, animated: true }
       if (covered.has(e.id)) return { ...base, style: { stroke: '#22d3ee', strokeWidth: 2.4 } }
-      const cls = e.data?.classification
-      if (cls === 'positive') return { ...base, style: { stroke: pathColors.positive || '#22c55e', strokeWidth: 2.2 } }
-      if (cls === 'negative') return { ...base, style: { stroke: pathColors.negative || '#ef4444', strokeWidth: 2.2 } }
+      if (classColors) {
+        const cls = e.data?.classification
+        if (cls === 'positive') return { ...base, style: { stroke: pathColors.positive || '#22c55e', strokeWidth: 2.2 } }
+        if (cls === 'negative') return { ...base, style: { stroke: pathColors.negative || '#ef4444', strokeWidth: 2.2 } }
+      }
       return base
     }),
-    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds],
+    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors],
   )
 
   const select = useCallback((id) => setSelection({ kind: 'node', id }), [])
