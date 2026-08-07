@@ -821,3 +821,10 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
 .acct-block { border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; margin-bottom: 7px; }
 .cred-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--border); }
 .pw-box { flex: 1; font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* password policy checklist + confirm strips + inline account editor */
+.pw-rules { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.pw-rule { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--text-dim); }
+.pw-rule.ok { color: #4ade80; border-color: rgba(74,222,128,.5); background: rgba(74,222,128,.08); }
+.confirm-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(251,191,36,.55); background: rgba(251,191,36,.08); border-radius: 9px; font-size: 12px; }
+.acct-edit { margin-top: 8px; padding: 10px; border: 1px dashed var(--border); border-radius: 9px; background: var(--bg-2); }

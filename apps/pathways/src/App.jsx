@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useStore, mergedTemplates } from './store'
+import { useStore, mergedTemplates, validPassword } from './store'
 import { iconInk } from './components/FlowNode'
 import DiagramDashboard from './components/DiagramDashboard'
 import TestDashboard from './components/TestDashboard'
@@ -446,11 +446,133 @@ function ShareLinkBox() {
   )
 }
 
-// admin-only: pending access requests + account role management
+// live password policy checklist — each rule highlights as it is satisfied
+function PwRules({ pw }) {
+  const rules = [
+    { ok: (pw || '').length >= 16, label: '16+ characters' },
+    { ok: /[A-Z]/.test(pw || ''), label: 'uppercase letter' },
+    { ok: /[a-z]/.test(pw || ''), label: 'lowercase letter' },
+    { ok: /[0-9]/.test(pw || ''), label: 'number' },
+    { ok: /[^A-Za-z0-9]/.test(pw || ''), label: 'special character' },
+  ]
+  return (
+    <div className="pw-rules">
+      {rules.map((r) => <span key={r.label} className={'pw-rule' + (r.ok ? ' ok' : '')}>{r.ok ? '✓' : '○'} {r.label}</span>)}
+    </div>
+  )
+}
+
+// inline account editor with a confirm / cancel prompt before applying changes
+function AccountEditor({ acct, onClose }) {
+  const s = useStore()
+  const [f, setF] = useState({ firstName: acct.firstName, lastName: acct.lastName, business: acct.business || '', email: acct.email, password: '' })
+  const [confirming, setConfirming] = useState(false)
+  const [err, setErr] = useState(null)
+  const set2 = (k, v) => { setF({ ...f, [k]: v }); setErr(null); setConfirming(false) }
+  const requestSave = () => {
+    if (!f.firstName.trim() || !f.lastName.trim()) { setErr('First and last name are required.'); return }
+    if (!/\S+@\S+\.\S+/.test(f.email)) { setErr('A valid email address is required.'); return }
+    if (f.password && !validPassword(f.password)) { setErr('Password does not meet the requirements — see the checklist below.'); return }
+    setErr(null); setConfirming(true)
+  }
+  const save = () => {
+    const e = s.updateAccount(acct.email, f)
+    if (e) { setErr(e); setConfirming(false); return }
+    onClose()
+  }
+  return (
+    <div className="acct-edit">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div className="field"><label>First name</label><input value={f.firstName} onChange={(e) => set2('firstName', e.target.value)} /></div>
+        <div className="field"><label>Last name</label><input value={f.lastName} onChange={(e) => set2('lastName', e.target.value)} /></div>
+        <div className="field"><label>Business</label><input value={f.business} onChange={(e) => set2('business', e.target.value)} /></div>
+        <div className="field"><label>Email (username)</label><input value={f.email} onChange={(e) => set2('email', e.target.value)} /></div>
+      </div>
+      <div className="field"><label>New password — leave blank to keep the current one</label>
+        <input type="text" value={f.password} placeholder="Set a new password" onChange={(e) => set2('password', e.target.value)} />
+        <PwRules pw={f.password} />
+      </div>
+      {err && <div className="field-err">⚠ {err}</div>}
+      {confirming ? (
+        <div className="confirm-strip">
+          <span>Apply these changes to <b>{acct.email}</b>?</span>
+          <button className="btn small primary" onClick={save}>✓ Confirm</button>
+          <button className="btn small" onClick={() => setConfirming(false)}>✕ Cancel</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn small primary" onClick={requestSave}>💾 Save changes</button>
+          <button className="btn small" onClick={onClose}>Cancel</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// admin: add a new user account (validated, with confirm prompt)
+function AddUserForm({ onClose }) {
+  const s = useStore()
+  const [f, setF] = useState({ firstName: '', lastName: '', business: '', email: '', role: 'user', password: '' })
+  const [confirming, setConfirming] = useState(false)
+  const [err, setErr] = useState(null)
+  const set2 = (k, v) => { setF({ ...f, [k]: v }); setErr(null); setConfirming(false) }
+  const requestAdd = () => {
+    if (!f.firstName.trim() || !f.lastName.trim()) { setErr('First and last name are required.'); return }
+    if (!/\S+@\S+\.\S+/.test(f.email)) { setErr('A valid email address is required (it becomes the username).'); return }
+    if (s.accounts.some((a) => a.email.toLowerCase() === f.email.trim().toLowerCase())) { setErr('An account with this email already exists.'); return }
+    if (!validPassword(f.password)) { setErr('Password does not meet the requirements — see the checklist below.'); return }
+    setErr(null); setConfirming(true)
+  }
+  const add = () => {
+    s.addAccount({ email: f.email.trim(), firstName: f.firstName.trim(), lastName: f.lastName.trim(), business: f.business.trim(), role: f.role, password: f.password })
+    useStore.getState().log('project', 'share', `Account ${f.email.trim()} created (${f.role})`)
+    onClose()
+  }
+  return (
+    <div className="acct-edit">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div className="field"><label>First name *</label><input value={f.firstName} onChange={(e) => set2('firstName', e.target.value)} /></div>
+        <div className="field"><label>Last name *</label><input value={f.lastName} onChange={(e) => set2('lastName', e.target.value)} /></div>
+        <div className="field"><label>Business</label><input value={f.business} onChange={(e) => set2('business', e.target.value)} /></div>
+        <div className="field"><label>Email (username) *</label><input value={f.email} onChange={(e) => set2('email', e.target.value)} /></div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+        <div className="field" style={{ flex: 1 }}><label>Password *</label>
+          <input type="text" value={f.password} onChange={(e) => set2('password', e.target.value)} /></div>
+        <div className="field"><label>Role</label>
+          <select value={f.role} onChange={(e) => set2('role', e.target.value)}>
+            <option value="admin">Administrator</option><option value="user">User</option><option value="viewer">Viewer</option>
+          </select></div>
+      </div>
+      <PwRules pw={f.password} />
+      {err && <div className="field-err">⚠ {err}</div>}
+      {confirming ? (
+        <div className="confirm-strip">
+          <span>Create account <b>{f.email}</b> ({f.role})?</span>
+          <button className="btn small primary" onClick={add}>✓ Confirm</button>
+          <button className="btn small" onClick={() => setConfirming(false)}>✕ Cancel</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+          <button className="btn small primary" onClick={requestAdd}>＋ Create user</button>
+          <button className="btn small" onClick={onClose}>Cancel</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// admin-only: pending access requests + full account administration.
+// The Owner account is visible ONLY to the Owner and can never be deleted.
 function AccountAdmin() {
   const s = useStore()
   const [revealPw, setRevealPw] = useState(null)
+  const [editing, setEditing] = useState(null)
+  const [deleting, setDeleting] = useState(null)
+  const [adding, setAdding] = useState(false)
   const pending = s.accessRequests.filter((r) => r.status === 'pending')
+  const isOwnerSession = s.session?.role === 'owner'
+  const visibleAccounts = s.accounts.filter((a) => a.role !== 'owner' || isOwnerSession)
   return (
     <div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
@@ -468,9 +590,14 @@ function AccountAdmin() {
           </span>
         </div>
       ))}
-      <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, margin: '10px 0 6px' }}>Accounts</div>
-      {s.accounts.map((a) => {
+      <div style={{ display: 'flex', alignItems: 'center', margin: '10px 0 6px' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Accounts</span>
+        <button className="btn small primary" style={{ marginLeft: 'auto' }} onClick={() => setAdding(!adding)}>＋ Add user</button>
+      </div>
+      {adding && <AddUserForm onClose={() => setAdding(false)} />}
+      {visibleAccounts.map((a) => {
         const self = a.email === s.session?.email
+        const owner = a.role === 'owner'
         const off = a.enabled === false
         return (
           <div key={a.email} className="acct-block" style={off ? { opacity: .55 } : {}}>
@@ -478,16 +605,30 @@ function AccountAdmin() {
               <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{(a.firstName[0] + (a.lastName[0] || '')).toUpperCase()}</span>
               <b>{a.firstName} {a.lastName}</b>
               <span className="em">{a.email}</span>
+              {a.business && <span className="tag test">{a.business}</span>}
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center' }}>
-                <select value={a.role} onChange={(e) => s.setAccountRole(a.email, e.target.value)}
-                  disabled={self} title={self ? 'You cannot change your own role' : 'Role'}>
-                  <option value="admin">Administrator</option>
-                  <option value="user">User</option>
-                  <option value="viewer">Viewer</option>
-                </select>
-                <button className={'btn small' + (off ? '' : ' primary')} disabled={self}
-                  title={self ? 'You cannot disable your own account' : off ? 'Enable this account' : 'Disable this account — sign-in will be refused'}
-                  onClick={() => s.setAccountEnabled(a.email, off)}>{off ? '🚫 disabled' : '✓ enabled'}</button>
+                {owner ? (
+                  <span className="tag project" style={{ color: '#fbbf24', borderColor: '#fbbf24' }}
+                    title="The Owner account has full privileges, is hidden from other administrators, and cannot be deleted">👑 Owner</span>
+                ) : (
+                  <select value={a.role} onChange={(e) => s.setAccountRole(a.email, e.target.value)}
+                    disabled={self} title={self ? 'You cannot change your own role' : 'Role'}>
+                    <option value="admin">Administrator</option>
+                    <option value="user">User</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                )}
+                {!owner && (
+                  <button className={'btn small' + (off ? '' : ' primary')} disabled={self}
+                    title={self ? 'You cannot disable your own account' : off ? 'Enable this account' : 'Disable this account — sign-in will be refused'}
+                    onClick={() => s.setAccountEnabled(a.email, off)}>{off ? '🚫 disabled' : '✓ enabled'}</button>
+                )}
+                <button className="btn small" title="Edit account details & password"
+                  onClick={() => { setEditing(editing === a.email ? null : a.email); setDeleting(null) }}>✎</button>
+                {!owner && !self && (
+                  <button className="btn small danger" title="Delete this account"
+                    onClick={() => { setDeleting(deleting === a.email ? null : a.email); setEditing(null) }}>🗑</button>
+                )}
               </span>
             </div>
             <div className="cred-row">
@@ -497,11 +638,19 @@ function AccountAdmin() {
               <button className="btn small" title={revealPw === a.email ? 'Hide password' : 'Reveal password'}
                 onClick={() => setRevealPw(revealPw === a.email ? null : a.email)}>{revealPw === a.email ? '🙈' : '👁'}</button>
             </div>
+            {deleting === a.email && (
+              <div className="confirm-strip">
+                <span>Delete account <b>{a.email}</b>? This cannot be undone.</span>
+                <button className="btn small danger" onClick={() => { s.deleteAccount(a.email); setDeleting(null) }}>✓ Confirm delete</button>
+                <button className="btn small" onClick={() => setDeleting(null)}>✕ Cancel</button>
+              </div>
+            )}
+            {editing === a.email && <AccountEditor acct={a} onClose={() => setEditing(null)} />}
           </div>
         )
       })}
       <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 8 }}>
-        Administrator: full control. User: edit rights on projects they own or were shared with editor permissions. Viewer: read-only review of what's shared with them. Passwords require 16+ characters with mixed case, a number, and a special character. ⚠ Credential visibility here is temporary — once the Phase 2 backend lands, passwords are hashed and retrievable only via administrator request or a direct Postgres query.
+        Owner: full privileges, visible only to the Owner, cannot be deleted. Administrator: full control. User: edit rights on projects they own or were shared with editor permissions. Viewer: read-only review of what's shared with them. ⚠ Credential visibility here is temporary — once the Phase 2 backend lands, passwords are hashed and retrievable only via administrator request or a direct Postgres query.
       </div>
     </div>
   )
@@ -578,7 +727,7 @@ function ProfileModal({ onClose }) {
           <CommunityCollaborators />
         </Fold>
 
-        {s.session?.role === 'admin' && (
+        {['owner', 'admin'].includes(s.session?.role) && (
           <Fold title="🔐 User Administration"
             badge={s.accessRequests.filter((r) => r.status === 'pending').length > 0
               ? <span className="tag test">{s.accessRequests.filter((r) => r.status === 'pending').length} pending</span>

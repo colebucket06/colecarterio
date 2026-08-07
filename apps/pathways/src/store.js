@@ -185,7 +185,7 @@ export const useStore = create((set, get) => ({
   // Roles: admin (everything) · user (edit projects they own / were shared with editor
   // rights) · viewer (read-only; via account OR an unauthenticated view-only share link)
   accounts: [
-    { email: 'colebucket06@gmail.com', firstName: 'Cole', lastName: 'Carter', business: 'colecarter.io', role: 'admin', password: 'Pathways!Admin#2026Cc', enabled: true },
+    { email: 'colebucket06@gmail.com', firstName: 'Cole', lastName: 'Carter', business: 'colecarter.io', role: 'owner', password: 'Pathways!Admin#2026Cc', enabled: true },
     { email: 'kyle.cook@charter.net', firstName: 'Kyle', lastName: 'Cook', business: 'Charter', role: 'user', password: 'Charter#Kyle!2026$Pw', enabled: true },
   ],
   accessRequests: [],
@@ -198,7 +198,7 @@ export const useStore = create((set, get) => ({
     if ((acct.password || '') !== password) return 'Incorrect password.'
     // a "user" only gets edit rights on projects where they are owner/editor members
     const member = get().project.members.find((m) => m.email.toLowerCase() === e)
-    const canEdit = acct.role === 'admin' || (acct.role === 'user' && ['owner', 'editor'].includes(member?.role))
+    const canEdit = ['owner', 'admin'].includes(acct.role) || (acct.role === 'user' && ['owner', 'editor'].includes(member?.role))
     set({ session: { email: acct.email, name: `${acct.firstName} ${acct.lastName}`, role: acct.role, canEdit, sharedSuiteIds: null, launched: false },
       currentUser: { ...get().currentUser, name: `${acct.firstName} ${acct.lastName}`, email: acct.email } })
     get().refreshSessionPerms() // includes global community collaborators
@@ -208,7 +208,27 @@ export const useStore = create((set, get) => ({
   logout: () => set({ session: null }),
   launchApp: () => set((s) => ({ session: s.session ? { ...s.session, launched: true } : null })),
   addAccount: (acct) => set((s) => ({ accounts: [...s.accounts, { enabled: true, ...acct }] })),
-  setAccountRole: (email, role) => set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, role } : a)) })),
+  setAccountRole: (email, role) => set((s) => ({ accounts: s.accounts.map((a) => (a.email === email && a.role !== 'owner' ? { ...a, role } : a)) })),
+  // admin: update an account's details; password (when provided) must meet the policy
+  updateAccount: (email, patch) => {
+    if (patch.password != null && patch.password !== '' && !validPassword(patch.password))
+      return 'Password does not meet the requirements — see the checklist below.'
+    const clean = { ...patch }
+    if (clean.password === '' || clean.password == null) delete clean.password
+    if (!/\S+@\S+\.\S+/.test(clean.email || email)) return 'A valid email address is required.'
+    set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, ...clean } : a)) }))
+    const ses = get().session
+    if (ses?.email === email && clean.email && clean.email !== email) set({ session: { ...ses, email: clean.email } })
+    get().log('project', 'share', `Account ${email} updated`)
+    return null
+  },
+  // admin: delete an account — the Owner account can never be deleted
+  deleteAccount: (email) => {
+    const a = get().accounts.find((x) => x.email === email)
+    if (!a || a.role === 'owner') return
+    set((s) => ({ accounts: s.accounts.filter((x) => x.email !== email) }))
+    get().log('project', 'share', `Account ${email} deleted`)
+  },
   setAccountEnabled: (email, enabled) => {
     set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, enabled } : a)) }))
     get().log('project', 'share', `Account ${email} ${enabled ? 'enabled' : 'disabled'}`)
@@ -1254,7 +1274,7 @@ export const useStore = create((set, get) => ({
     const e = ses.email.toLowerCase()
     const member = get().project.members.find((m) => m.email.toLowerCase() === e)
     const glob = get().globalCollaborators.find((g) => g.email.toLowerCase() === e)
-    const canEdit = ses.role === 'admin'
+    const canEdit = ['owner', 'admin'].includes(ses.role)
       || (ses.role === 'user' && (['owner', 'editor'].includes(member?.role) || glob?.role === 'editor'))
     if (canEdit !== ses.canEdit) set({ session: { ...ses, canEdit } })
   },
