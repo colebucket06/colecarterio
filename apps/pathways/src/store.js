@@ -28,6 +28,13 @@ export const STATUS_OPTIONS = ['Pass', 'Fail', 'Partial Pass', 'Not Applicable',
 export const validPassword = (pw) => typeof pw === 'string' && pw.length >= 16
   && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /[0-9]/.test(pw) && /[^A-Za-z0-9]/.test(pw)
 
+// random policy-compliant password (20 chars, all four classes guaranteed)
+export const genPassword = () => {
+  const U = 'ABCDEFGHJKLMNPQRSTUVWXYZ', L = 'abcdefghijkmnpqrstuvwxyz', D = '23456789', S = '!#$%&*+-?@'
+  const pick = (set, n) => Array.from({ length: n }, () => set[Math.floor(Math.random() * set.length)]).join('')
+  return (pick(U, 4) + pick(L, 8) + pick(D, 5) + pick(S, 3)).split('').sort(() => Math.random() - 0.5).join('')
+}
+
 // NODE_TEMPLATES merged with the project's global type overrides (color / icon / label).
 // User-created custom types live in typeDefs with a __custom flag and surface here
 // alongside the built-ins, so palettes / dialogs / filters treat them identically.
@@ -185,8 +192,8 @@ export const useStore = create((set, get) => ({
   // Roles: admin (everything) · user (edit projects they own / were shared with editor
   // rights) · viewer (read-only; via account OR an unauthenticated view-only share link)
   accounts: [
-    { email: 'colebucket06@gmail.com', firstName: 'Cole', lastName: 'Carter', business: 'colecarter.io', role: 'owner', password: 'Pathways!Admin#2026Cc', enabled: true },
-    { email: 'kyle.cook@charter.net', firstName: 'Kyle', lastName: 'Cook', business: 'Charter', role: 'user', password: 'Charter#Kyle!2026$Pw', enabled: true },
+    { email: 'colebucket06@gmail.com', firstName: 'Cole', lastName: 'Carter', business: 'colecarter.io', role: 'owner', password: 'Pathways!Admin#2026Cc', enabled: true, profileComplete: true, preferredName: 'Cole', company: 'colecarter.io', title: 'Owner', jobRole: 'Platform Owner', about: '', passions: '' },
+    { email: 'kyle.cook@charter.net', firstName: 'Kyle', lastName: 'Cook', business: 'Charter', role: 'user', password: 'Charter#Kyle!2026$Pw', enabled: true, profileComplete: true, preferredName: 'Kyle', company: 'Charter', title: '', jobRole: '', about: '', passions: '' },
   ],
   accessRequests: [],
   session: null, // { email, name, role, sharedSuiteIds: null | [suiteId], launched: bool }
@@ -199,7 +206,7 @@ export const useStore = create((set, get) => ({
     // a "user" only gets edit rights on projects where they are owner/editor members
     const member = get().project.members.find((m) => m.email.toLowerCase() === e)
     const canEdit = ['owner', 'admin'].includes(acct.role) || (acct.role === 'user' && ['owner', 'editor'].includes(member?.role))
-    set({ session: { email: acct.email, name: `${acct.firstName} ${acct.lastName}`, role: acct.role, canEdit, sharedSuiteIds: null, launched: false },
+    set({ session: { email: acct.email, name: acct.preferredName || `${acct.firstName} ${acct.lastName}`, role: acct.role, canEdit, sharedSuiteIds: null, launched: false, needsProfile: acct.profileComplete === false },
       currentUser: { ...get().currentUser, name: `${acct.firstName} ${acct.lastName}`, email: acct.email } })
     get().refreshSessionPerms() // includes global community collaborators
     get().log('project', 'view', `${acct.firstName} ${acct.lastName} signed in (${acct.role})`)
@@ -207,14 +214,21 @@ export const useStore = create((set, get) => ({
   },
   logout: () => set({ session: null }),
   launchApp: () => set((s) => ({ session: s.session ? { ...s.session, launched: true } : null })),
-  addAccount: (acct) => set((s) => ({ accounts: [...s.accounts, { enabled: true, ...acct }] })),
+  addAccount: (acct) => set((s) => ({ accounts: [...s.accounts, { enabled: true, profileComplete: false, ...acct }] })),
   setAccountRole: (email, role) => set((s) => ({ accounts: s.accounts.map((a) => (a.email === email && a.role !== 'owner' ? { ...a, role } : a)) })),
   // admin: update an account's details; password (when provided) must meet the policy
   updateAccount: (email, patch) => {
-    if (patch.password != null && patch.password !== '' && !validPassword(patch.password))
-      return 'Password does not meet the requirements — see the checklist below.'
+    if (patch.password != null && patch.password !== '') {
+      // only the Owner may set another user's password; everyone may change their own
+      const ses = get().session
+      if (ses && ses.role !== 'owner' && ses.email !== email)
+        return 'Only the Owner can set another user’s password — use "Request reset" instead.'
+      if (!validPassword(patch.password))
+        return 'Password does not meet the requirements — see the checklist below.'
+    }
     const clean = { ...patch }
     if (clean.password === '' || clean.password == null) delete clean.password
+    else clean.resetRequested = false // a fresh password clears any pending reset flag
     if (!/\S+@\S+\.\S+/.test(clean.email || email)) return 'A valid email address is required.'
     set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, ...clean } : a)) }))
     const ses = get().session
@@ -253,12 +267,103 @@ export const useStore = create((set, get) => ({
     const r = get().accessRequests.find((x) => x.id === id)
     if (!r) return
     if (role) {
-      const temp = 'Pathways!' + Math.random().toString(36).slice(2, 10) + '#2026Aa'
+      const temp = genPassword()
       get().addAccount({ email: r.email, firstName: r.firstName, lastName: r.lastName, business: r.business || '', role, password: temp })
       get().notify(r.email, 'share', 'Pathways.io — access approved', `Your access request was approved with the "${role}" role. Sign in with ${r.email} and the temporary password: ${temp}`)
     }
     set((s) => ({ accessRequests: s.accessRequests.map((x) => (x.id === id ? { ...x, status: role ? 'approved' : 'denied' } : x)) }))
     get().log('project', 'share', `Access request from ${r.firstName} ${r.lastName} ${role ? `approved as ${role}` : 'denied'}`)
+  },
+
+  // ---- invitations: anyone signed in can invite; owner/admin invites activate at
+  // once, standard users' invites go to the Owner (admin@colecarter.io) first ----
+  invites: [], // { id, email, name, invitedBy, invitedByName, communities: [projectId], status, ts }
+  // the communities (projects) an email belongs to, across active + stashed projects
+  communitiesOf: (email) => {
+    const e = (email || '').toLowerCase()
+    const s = get()
+    const out = []
+    if (s.project.members.some((m) => m.email.toLowerCase() === e)) out.push({ id: s.project.id, name: s.project.name })
+    s.projectsHub.forEach((p) => {
+      if ((p.snapshot?.project?.members || []).some((m) => m.email.toLowerCase() === e)) out.push({ id: p.id, name: p.name })
+    })
+    return out
+  },
+  addMemberToProjectById: (projectId, member) => {
+    const s = get()
+    const has = (ms) => ms.some((m) => m.email.toLowerCase() === member.email.toLowerCase())
+    if (s.project.id === projectId) {
+      if (!has(s.project.members)) set((st) => ({ project: { ...st.project, members: [...st.project.members, member] } }))
+    } else {
+      set((st) => ({ projectsHub: st.projectsHub.map((p) => (p.id === projectId && p.snapshot?.project && !has(p.snapshot.project.members)
+        ? { ...p, snapshot: { ...p.snapshot, project: { ...p.snapshot.project, members: [...p.snapshot.project.members, member] } } }
+        : p)) }))
+    }
+  },
+  inviteUser: ({ email, name, communities }) => {
+    const e = (email || '').trim()
+    if (!/\S+@\S+\.\S+/.test(e)) return 'A valid email address is required to send an invitation.'
+    if (get().accounts.some((a) => a.email.toLowerCase() === e.toLowerCase())) return 'An account with this email already exists.'
+    if (get().invites.some((i) => i.email.toLowerCase() === e.toLowerCase() && ['pending-approval', 'invited'].includes(i.status))) return 'An invitation for this email is already open.'
+    const ses = get().session
+    const isAdmin = ['owner', 'admin'].includes(ses?.role)
+    const inv = { id: uid('inv'), email: e, name: (name || '').trim(), invitedBy: ses?.email || '', invitedByName: ses?.name || 'Unknown',
+      communities: communities || [], status: isAdmin ? 'invited' : 'pending-approval', ts: now() }
+    set((s) => ({ invites: [inv, ...s.invites] }))
+    if (isAdmin) {
+      get().activateInvite(inv.id)
+    } else {
+      get().notify('admin@colecarter.io', 'invite', 'Pathways.io — invitation needs Owner approval',
+        `${inv.invitedByName} <${inv.invitedBy}> invited ${e}${inv.communities.length ? ` into ${inv.communities.length} community(ies)` : ' (no community)'}. Approve or deny in Profile → User Administration → Invitations.`,
+        { audience: [inv.invitedBy] })
+      get().log('project', 'share', `${inv.invitedByName} invited ${e} — pending Owner approval`)
+    }
+    return null
+  },
+  // create the account behind an invitation (owner approval, or immediate for admins)
+  activateInvite: (id) => {
+    const inv = get().invites.find((x) => x.id === id)
+    if (!inv || inv.status === 'accepted') return
+    const temp = genPassword()
+    const parts = (inv.name || inv.email.split('@')[0]).split(' ')
+    get().addAccount({ email: inv.email, firstName: parts[0], lastName: parts.slice(1).join(' '), business: '', role: 'user', password: temp })
+    inv.communities.forEach((pid) => {
+      get().addMemberToProjectById(pid, { id: uid('u'), name: inv.name || inv.email.split('@')[0], email: inv.email, role: 'viewer' })
+    })
+    set((s) => ({ invites: s.invites.map((x) => (x.id === id ? { ...x, status: 'invited', decidedAt: now() } : x)) }))
+    get().notify(inv.email, 'invite', 'Pathways.io — you have been invited',
+      `${inv.invitedByName} invited you to Pathways.io. Sign in with ${inv.email} and the temporary password: ${temp}. You'll be asked to complete your profile on first sign-in.`,
+      { audience: [inv.invitedBy] })
+    get().log('project', 'share', `Account created for ${inv.email} — invited by ${inv.invitedByName}${inv.communities.length ? `, added to ${inv.communities.length} community(ies)` : ''} (credentials excluded from log)`)
+  },
+  // ask the Owner to initialize / change a user's password (admins can't see or set
+  // other users' credentials) — flags the target account for the Owner
+  requestPasswordReset: (email) => {
+    const ses = get().session
+    set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, resetRequested: true } : a)) }))
+    get().notify('admin@colecarter.io', 'reset', `Pathways.io — password reset requested for ${email}`,
+      `${ses?.name || 'A user'} <${ses?.email || ''}> requested a password reset / initialization for ${email}. Set a new password in Profile → User Administration (the account is flagged 🚩).`,
+      { audience: [ses?.email, email].filter(Boolean) })
+    get().log('project', 'share', `Password reset requested for ${email} — routed to the Owner`)
+  },
+
+  // Owner decision on a standard user's invitation
+  resolveInvite: (id, approve) => {
+    const inv = get().invites.find((x) => x.id === id)
+    if (!inv || inv.status !== 'pending-approval') return
+    if (approve) { get().activateInvite(id); return }
+    set((s) => ({ invites: s.invites.map((x) => (x.id === id ? { ...x, status: 'denied', decidedAt: now() } : x)) }))
+    get().notify(inv.invitedBy, 'invite', 'Pathways.io — invitation declined', `The Owner declined the invitation for ${inv.email}.`, { audience: [inv.invitedBy] })
+    get().log('project', 'share', `Invitation for ${inv.email} denied by the Owner`)
+  },
+  // first-login profile completion (preferred name is shown to other users)
+  completeProfile: (fields) => {
+    const ses = get().session
+    if (!ses?.email) return
+    get().updateAccount(ses.email, { ...fields, profileComplete: true })
+    set({ session: { ...get().session, needsProfile: false, name: fields.preferredName || ses.name },
+      currentUser: { ...get().currentUser, name: fields.preferredName || get().currentUser.name } })
+    get().log('project', 'view', `${fields.preferredName || ses.name} completed their profile`)
   },
 
   // view-only share links from a Project Owner — open without authentication
@@ -433,8 +538,8 @@ export const useStore = create((set, get) => ({
   toggleFlag: (id) => set((s) => ({ changeLog: s.changeLog.map((e) => (e.id === id ? { ...e, flagged: !e.flagged } : e)) })),
 
   // ---- notifications ----
-  notify: (to, kind, subject, body) => set((s) => ({
-    notifications: [{ id: uid('nt'), ts: now(), to, kind, subject, body, read: false }, ...s.notifications],
+  notify: (to, kind, subject, body, opts = {}) => set((s) => ({
+    notifications: [{ id: uid('nt'), ts: now(), to, kind, subject, body, read: false, audience: opts.audience || [] }, ...s.notifications],
   })),
   markAllRead: () => set((s) => ({ notifications: s.notifications.map((n) => ({ ...n, read: true })) })),
   checkDueDates: () => {
@@ -1179,7 +1284,7 @@ export const useStore = create((set, get) => ({
     const s = get()
     return { schemaVersion: 3, exportedAt: now(), ...get().snapshotProject(),
       projectsHub: s.projectsHub, globalCollaborators: s.globalCollaborators,
-      accounts: s.accounts, accessRequests: s.accessRequests }
+      accounts: s.accounts, accessRequests: s.accessRequests, invites: s.invites }
   },
   // load a project snapshot into the active workspace (platform state untouched)
   loadSnapshot: (obj) => {
@@ -1210,6 +1315,7 @@ export const useStore = create((set, get) => ({
       globalCollaborators: obj.globalCollaborators || [],
       ...(obj.accounts ? { accounts: obj.accounts } : {}),
       ...(obj.accessRequests ? { accessRequests: obj.accessRequests } : {}),
+      ...(obj.invites ? { invites: obj.invites } : {}),
     })
     get().refreshSessionPerms()
     get().log('project', 'import', `Imported "${obj.project?.name}"${(obj.projectsHub || []).length ? ` + ${obj.projectsHub.length} more project(s)` : ''}`)

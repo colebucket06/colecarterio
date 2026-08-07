@@ -109,6 +109,51 @@ export function Landing() {
   )
 }
 
+// ---- first sign-in: prompt the new user to populate their profile ----
+export function ProfileSetup() {
+  const s = useStore()
+  const acct = s.accounts.find((a) => a.email === s.session?.email)
+  const [f, setF] = useState({ preferredName: acct?.preferredName || acct?.firstName || '', company: acct?.business || '',
+    title: '', jobRole: '', about: '', passions: '' })
+  const [err, setErr] = useState(null)
+  const save = () => {
+    if (!f.preferredName.trim()) { setErr('A preferred name is required — it’s how other users will see you.'); return }
+    s.completeProfile({ ...f, preferredName: f.preferredName.trim() })
+  }
+  return (
+    <div className="landing">
+      <div className="landing-brand">
+        <PathwaysIcon size={56} />
+        <div>
+          <div className="landing-title" style={{ fontSize: 22 }}>WELCOME TO PATHWAYS.IO</div>
+          <div className="landing-sub">Before you dive in, tell the community a little about yourself.</div>
+        </div>
+      </div>
+      <div className="landing-card" style={{ maxWidth: 560, width: '100%' }}>
+        <h3>Complete your profile</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div className="field"><label>Preferred name <span className="req-star">*</span> — shown to other users</label>
+            <input autoFocus value={f.preferredName} onChange={(e) => setF({ ...f, preferredName: e.target.value })} /></div>
+          <div className="field"><label>Company</label>
+            <input value={f.company} onChange={(e) => setF({ ...f, company: e.target.value })} /></div>
+          <div className="field"><label>Title</label>
+            <input value={f.title} placeholder="e.g. QA Lead" onChange={(e) => setF({ ...f, title: e.target.value })} /></div>
+          <div className="field"><label>Role</label>
+            <input value={f.jobRole} placeholder="e.g. Test engineering" onChange={(e) => setF({ ...f, jobRole: e.target.value })} /></div>
+        </div>
+        <div className="field"><label>About you</label>
+          <textarea rows={3} value={f.about} placeholder="A short personal description…"
+            onChange={(e) => setF({ ...f, about: e.target.value })} /></div>
+        <div className="field"><label>Passions</label>
+          <textarea rows={2} value={f.passions} placeholder="What are you passionate about — in and outside of work?"
+            onChange={(e) => setF({ ...f, passions: e.target.value })} /></div>
+        {err && <div className="field-err">⚠ {err}</div>}
+        <button className="btn primary" style={{ width: '100%', marginTop: 4 }} onClick={save}>✓ Save profile & continue</button>
+      </div>
+    </div>
+  )
+}
+
 // ---- post-authentication launcher: the domain hosts multiple applications; the
 // Pathways.io tile (medium icon, centered, uppercase label) opens the workspace ----
 export function Launcher() {

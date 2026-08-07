@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useStore, mergedTemplates, validPassword } from './store'
+import { useStore, mergedTemplates, validPassword, genPassword } from './store'
 import { iconInk } from './components/FlowNode'
 import DiagramDashboard from './components/DiagramDashboard'
 import TestDashboard from './components/TestDashboard'
 import { exportProjectFile } from './utils/exporters'
 import { THEME_KEYS, THEME_DEFAULTS, resolveTheme, applyThemeToDOM, PALETTES, suggestAltScheme, schemeLooksLight } from './utils/theme'
 import { ColorCore } from './components/ColorTools'
-import { Landing, Launcher, PathwaysIcon } from './components/Landing'
+import { Landing, Launcher, PathwaysIcon, ProfileSetup } from './components/Landing'
 
 function LogPanel({ onClose }) {
   const s = useStore()
@@ -40,6 +40,11 @@ function LogPanel({ onClose }) {
 
 function NotifPanel({ onClose }) {
   const s = useStore()
+  // visibility: Owner/Admins see everything; other users see only notifications
+  // addressed to them or where they're in the audience (e.g. their own invites)
+  const ses = s.session
+  const seesAll = ['owner', 'admin'].includes(ses?.role)
+  const visible = s.notifications.filter((n) => seesAll || n.to === ses?.email || (n.audience || []).includes(ses?.email))
   return (
     <div className="notif-panel">
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10, gap: 6 }}>
@@ -47,8 +52,8 @@ function NotifPanel({ onClose }) {
         <button className="btn small" style={{ marginLeft: 'auto' }} onClick={() => s.markAllRead()}>Mark all read</button>
         <button className="btn small" onClick={onClose}>✕</button>
       </div>
-      {s.notifications.length === 0 && <div className="empty">No notifications.</div>}
-      {s.notifications.map((n) => (
+      {visible.length === 0 && <div className="empty">No notifications.</div>}
+      {visible.map((n) => (
         <div key={n.id} className={'notif' + (n.read ? '' : ' unread')}>
           <div className="nsub">{n.subject}</div>
           <div className="nmeta"><span>to: {n.to}</span><span>{new Date(n.ts).toLocaleString()}</span><span className="tag project">{n.kind}</span></div>
@@ -488,10 +493,19 @@ function AccountEditor({ acct, onClose }) {
         <div className="field"><label>Business</label><input value={f.business} onChange={(e) => set2('business', e.target.value)} /></div>
         <div className="field"><label>Email (username)</label><input value={f.email} onChange={(e) => set2('email', e.target.value)} /></div>
       </div>
-      <div className="field"><label>New password — leave blank to keep the current one</label>
-        <input type="text" value={f.password} placeholder="Set a new password" onChange={(e) => set2('password', e.target.value)} />
-        <PwRules pw={f.password} />
-      </div>
+      {(s.session?.role === 'owner' || s.session?.email === acct.email) ? (
+        <div className="field"><label>New password — leave blank to keep the current one</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type="text" style={{ flex: 1 }} value={f.password} placeholder="Set a new password" onChange={(e) => set2('password', e.target.value)} />
+            <button className="btn small" title="Generate a random policy-compliant password" onClick={() => set2('password', genPassword())}>🎲 Generate</button>
+          </div>
+          <PwRules pw={f.password} />
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: 'var(--text-dim)', margin: '4px 0 8px' }}>
+          🔒 Passwords for other users can only be set by the Owner — use 📨 Request reset on the account row instead.
+        </div>
+      )}
       {err && <div className="field-err">⚠ {err}</div>}
       {confirming ? (
         <div className="confirm-strip">
@@ -538,7 +552,10 @@ function AddUserForm({ onClose }) {
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
         <div className="field" style={{ flex: 1 }}><label>Password *</label>
-          <input type="text" value={f.password} onChange={(e) => set2('password', e.target.value)} /></div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type="text" style={{ flex: 1 }} value={f.password} onChange={(e) => set2('password', e.target.value)} />
+            <button className="btn small" title="Generate a random policy-compliant password" onClick={() => set2('password', genPassword())}>🎲</button>
+          </div></div>
         <div className="field"><label>Role</label>
           <select value={f.role} onChange={(e) => set2('role', e.target.value)}>
             <option value="admin">Administrator</option><option value="user">User</option><option value="viewer">Viewer</option>
@@ -557,6 +574,106 @@ function AddUserForm({ onClose }) {
           <button className="btn small primary" onClick={requestAdd}>＋ Create user</button>
           <button className="btn small" onClick={onClose}>Cancel</button>
         </div>
+      )}
+    </div>
+  )
+}
+
+// invite a user: any signed-in account can invite (valid email required).
+// Owner/Admin invites activate immediately; standard users' go to the Owner first.
+// The invitee joins the inviter's community by default — with several communities,
+// the inviter chooses one, many, or none before sending.
+function InviteModal({ onClose }) {
+  const s = useStore()
+  const myCommunities = s.communitiesOf(s.session?.email)
+  const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [picked, setPicked] = useState(myCommunities.map((c) => c.id)) // default: inviter's communities
+  const [err, setErr] = useState(null)
+  const [sent, setSent] = useState(false)
+  const isAdmin = ['owner', 'admin'].includes(s.session?.role)
+  const toggle = (id) => setPicked(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id])
+  const send = () => {
+    const e = s.inviteUser({ email, name, communities: picked })
+    if (e) { setErr(e); return }
+    setSent(true)
+  }
+  return (
+    <div className="modal-scrim" style={{ zIndex: 95 }} onClick={onClose}>
+      <div className="modal" style={{ width: 'min(480px,92vw)' }} onClick={(ev) => ev.stopPropagation()}>
+        <h2>✉ Invite a user</h2>
+        {sent ? (
+          <div>
+            <div style={{ fontSize: 13, marginBottom: 10 }}>
+              {isAdmin
+                ? <>✅ Invitation sent — the account was created and <b>{email}</b> received a temporary password. They'll complete their profile on first sign-in.</>
+                : <>📨 Invitation submitted to the Owner (<b>admin@colecarter.io</b>) for confirmation. You'll be notified when it's approved or declined — track it under 🔔 notifications.</>}
+            </div>
+            <div className="foot"><button className="btn primary" onClick={onClose}>Done</button></div>
+          </div>
+        ) : (<>
+          <div className="field"><label>Email <span className="req-star">*</span> — becomes their username</label>
+            <input autoFocus value={email} placeholder="person@company.com" onChange={(e) => { setEmail(e.target.value); setErr(null) }} /></div>
+          <div className="field"><label>Name (optional)</label>
+            <input value={name} placeholder="First Last" onChange={(e) => setName(e.target.value)} /></div>
+          <div className="field"><label>Add to your {myCommunities.length === 1 ? 'community' : 'communities'}</label>
+            {myCommunities.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>You aren't a member of any community yet — the invitee joins with no community.</div>}
+            {myCommunities.length > 1 && <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>You belong to several communities — pick one, several, or none for the invitee.</div>}
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+              {myCommunities.map((c) => (
+                <button key={c.id} className={'btn small' + (picked.includes(c.id) ? ' primary' : '')}
+                  onClick={() => toggle(c.id)}>{picked.includes(c.id) ? '✓ ' : ''}{c.name}</button>
+              ))}
+            </div>
+            {myCommunities.length > 0 && picked.length === 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>No community selected — the invitee will join without one.</div>
+            )}
+          </div>
+          {err && <div className="field-err">⚠ {err}</div>}
+          <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 4 }}>
+            {isAdmin ? 'As an administrator, your invitation activates immediately.' : 'Your invitation is sent to the Owner (admin@colecarter.io) for confirmation before the account is created.'}
+          </div>
+          <div className="foot">
+            <button className="btn" onClick={onClose}>Cancel</button>
+            <button className="btn primary" disabled={!/\S+@\S+\.\S+/.test(email)} onClick={send}>✉ Send invitation</button>
+          </div>
+        </>)}
+      </div>
+    </div>
+  )
+}
+
+// invitation inbox: Owner approves/denies pending invites; admins monitor all statuses
+function InvitationsInbox() {
+  const s = useStore()
+  const isOwner = s.session?.role === 'owner'
+  const chip = (st) => ({ 'pending-approval': ['⏳ pending approval', '#fbbf24'], invited: ['✉ invited', '#4ade80'],
+    denied: ['✕ denied', '#f87171'], accepted: ['✓ accepted', '#4ade80'] }[st] || [st, 'var(--text-dim)'])
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, margin: '10px 0 6px' }}>
+        Invitations ({s.invites.length})</div>
+      {s.invites.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>No invitations yet.</div>}
+      {s.invites.map((inv) => {
+        const [label, color] = chip(inv.status)
+        return (
+          <div className="member-row" key={inv.id}>
+            <b>{inv.name || inv.email.split('@')[0]}</b>
+            <span className="em">{inv.email}</span>
+            <span className="em" title={`Invited by ${inv.invitedByName}`}>by {inv.invitedByName?.split(' ')[0]}</span>
+            {inv.communities.length > 0 && <span className="tag test">{inv.communities.length} communit{inv.communities.length === 1 ? 'y' : 'ies'}</span>}
+            <span className="tag project" style={{ color, borderColor: color, marginLeft: 'auto' }}>{label}</span>
+            {isOwner && inv.status === 'pending-approval' && (
+              <span style={{ display: 'flex', gap: 4 }}>
+                <button className="btn small primary" title="Approve — creates the account" onClick={() => s.resolveInvite(inv.id, true)}>✓ Approve</button>
+                <button className="btn small danger" title="Deny" onClick={() => s.resolveInvite(inv.id, false)}>✕ Deny</button>
+              </span>
+            )}
+          </div>
+        )
+      })}
+      {!isOwner && s.invites.some((i) => i.status === 'pending-approval') && (
+        <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>Pending invitations await the Owner's confirmation.</div>
       )}
     </div>
   )
@@ -590,6 +707,7 @@ function AccountAdmin() {
           </span>
         </div>
       ))}
+      <InvitationsInbox />
       <div style={{ display: 'flex', alignItems: 'center', margin: '10px 0 6px' }}>
         <span style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Accounts</span>
         <button className="btn small primary" style={{ marginLeft: 'auto' }} onClick={() => setAdding(!adding)}>＋ Add user</button>
@@ -603,9 +721,15 @@ function AccountAdmin() {
           <div key={a.email} className="acct-block" style={off ? { opacity: .55 } : {}}>
             <div className="member-row" style={{ marginBottom: 0 }}>
               <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{(a.firstName[0] + (a.lastName[0] || '')).toUpperCase()}</span>
-              <b>{a.firstName} {a.lastName}</b>
+              <b title={[a.title, a.jobRole, a.about, a.passions].filter(Boolean).join(' · ') || undefined}>
+                {a.preferredName || `${a.firstName} ${a.lastName}`}</b>
               <span className="em">{a.email}</span>
-              {a.business && <span className="tag test">{a.business}</span>}
+              {(a.company || a.business) && <span className="tag test">{a.company || a.business}</span>}
+              {a.title && <span className="tag project">{a.title}</span>}
+              {a.resetRequested && isOwnerSession && (
+                <span className="tag project" style={{ color: '#fbbf24', borderColor: '#fbbf24' }}
+                  title="Password reset requested — set a new password via ✎">🚩 reset requested</span>
+              )}
               <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center' }}>
                 {owner ? (
                   <span className="tag project" style={{ color: '#fbbf24', borderColor: '#fbbf24' }}
@@ -634,9 +758,16 @@ function AccountAdmin() {
             <div className="cred-row">
               <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>credentials</span>
               <span className="em">{a.email}</span>
-              <span className="pw-box">{revealPw === a.email ? (a.password || '(none)') : '••••••••••••••••'}</span>
-              <button className="btn small" title={revealPw === a.email ? 'Hide password' : 'Reveal password'}
-                onClick={() => setRevealPw(revealPw === a.email ? null : a.email)}>{revealPw === a.email ? '🙈' : '👁'}</button>
+              {(isOwnerSession || self) ? (<>
+                <span className="pw-box">{revealPw === a.email ? (a.password || '(none)') : '••••••••••••••••'}</span>
+                <button className="btn small" title={revealPw === a.email ? 'Hide password' : 'Reveal password'}
+                  onClick={() => setRevealPw(revealPw === a.email ? null : a.email)}>{revealPw === a.email ? '🙈' : '👁'}</button>
+              </>) : (<>
+                <span className="pw-box" title="Only the Owner can view other users' passwords">🔒 restricted to the Owner</span>
+                <button className="btn small" disabled={!!a.resetRequested}
+                  title={a.resetRequested ? 'A reset request is already pending with the Owner' : "Email the Owner to initialize or change this user's password"}
+                  onClick={() => s.requestPasswordReset(a.email)}>{a.resetRequested ? '⏳ reset pending' : '📨 Request reset'}</button>
+              </>)}
             </div>
             {deleting === a.email && (
               <div className="confirm-strip">
@@ -746,6 +877,7 @@ export default function App() {
   const [showLog, setShowLog] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [showNotifs, setShowNotifs] = useState(false)
+  const [showInvite, setShowInvite] = useState(false)
   const fileRef = useRef(null)
   const latest = s.changeLog[0]
   const flagged = s.changeLog.filter((e) => e.flagged).length
@@ -772,6 +904,7 @@ export default function App() {
   }
 
   if (!s.session) return <Landing />
+  if (s.session.needsProfile) return <ProfileSetup />
   if (!s.session.launched) return <Launcher />
   const canEdit = s.session.canEdit
   return (
@@ -798,6 +931,10 @@ export default function App() {
         {canEdit && <button className="btn small" onClick={() => fileRef.current?.click()}>📂 Open</button>}
         <input ref={fileRef} type="file" accept=".json" style={{ display: 'none' }} onChange={onImport} />
         <button className="btn small" title="Back to the application launcher" onClick={() => useStore.setState({ session: { ...s.session, launched: false } })}>⌂</button>
+        {s.session.email && (
+          <button className="btn small" title="Invite a user — admins' invitations activate immediately; others go to the Owner for confirmation"
+            onClick={() => setShowInvite(true)}>✉＋</button>
+        )}
         {canEdit && (
           <button className="bell" title="Notifications" onClick={() => setShowNotifs(!showNotifs)}>
             🔔{unread > 0 && <span className="bcount">{unread}</span>}
@@ -836,6 +973,7 @@ export default function App() {
       </main>
       {showNotifs && <NotifPanel onClose={() => setShowNotifs(false)} />}
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+      {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
     </div>
   )
 }
