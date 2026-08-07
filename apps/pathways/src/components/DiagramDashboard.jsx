@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow } from '@xyflow/react'
 import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, mergedTemplates, mergedTemplate } from '../store'
 import FlowNode, { SectionNode, StickyNode, iconInk } from './FlowNode'
+import { useSmartMenuPos } from './menuPos'
 import { RunSummaryModal, sevColor } from './Bugs'
 import MaximoWizard from './MaximoWizard'
 import { parseDrawio, parseMermaid } from '../utils/diagramImport'
@@ -208,11 +209,11 @@ function Tooltip({ tip }) {
 function WpMenu() {
   const s = useStore()
   const m = s.wpMenu
+  const [menuRef, style] = useSmartMenuPos(m?.x || 0, m?.y || 0)
   if (!m) return null
   const close = () => useStore.setState({ wpMenu: null })
-  const style = { left: Math.min(m.x, window.innerWidth - 235), top: Math.min(m.y, window.innerHeight - 230) }
   return (
-    <div className="ctx-menu" style={style} onClick={(e) => e.stopPropagation()}>
+    <div className="ctx-menu" ref={menuRef} style={style} onClick={(e) => e.stopPropagation()}>
       <div style={{ padding: '5px 11px', fontSize: 11, color: 'var(--accent-2)', fontWeight: 700 }}>Path point</div>
       <div className="sep" />
       <button onClick={() => { useStore.setState({ wpMenu: null, relocRequest: { edgeId: m.edgeId, index: m.index } }) }}>
@@ -259,10 +260,10 @@ function BrushConfirmModal({ confirm, onApply, onCancel }) {
 function ContextMenu({ menu, close, openFormat }) {
   const s = useStore()
   const { screenToFlowPosition } = useReactFlow()
+  const [menuRef, style] = useSmartMenuPos(menu?.x || 0, menu?.y || 0, [menu?.type, menu?.id])
   if (!menu) return null
   const hidden = s.diagrams.find((d) => d.id === s.activeDiagramId)?.hidden || []
   const isHidden = menu.id ? hidden.includes(menu.id) : false
-  const style = { left: Math.min(menu.x, window.innerWidth - 215), top: Math.min(menu.y, window.innerHeight - 360) }
   const viewLinked = (id) => {
     const linked = casesLinkedTo(s.cases, s.activeDiagramId, id)
     useStore.setState({ page: 'tests', focusCaseId: linked[0]?.id || null })
@@ -276,7 +277,7 @@ function ContextMenu({ menu, close, openFormat }) {
     </div>
   )
   return (
-    <div className="ctx-menu" style={style} onClick={(e) => e.stopPropagation()}>
+    <div className="ctx-menu" ref={menuRef} style={style} onClick={(e) => e.stopPropagation()}>
       {menu.type === 'multi' && (<>
         <div style={{ padding: '5px 11px', fontSize: 11, color: 'var(--accent-2)', fontWeight: 700 }}>{menu.ids.length} items selected</div>
         <div className="sep" />

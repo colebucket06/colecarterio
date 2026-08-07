@@ -5,6 +5,7 @@ import AttachmentManager from './AttachmentManager'
 import ImportWizard from './ImportWizard'
 import { BugModal, BugRow, downloadRunReport, reportBugs } from './Bugs'
 import { IssueModal, IssuesSection, issueCls } from './Issues'
+import { useSmartMenuPos } from './menuPos'
 
 const stCls = (st) => 'status-chip st-' + (st || '').replace(/\s/g, '')
 const reqLabel = (kind) => REQUIREMENT_KINDS.find((r) => r.kind === kind)?.label || kind
@@ -62,6 +63,19 @@ function StepDepsEditor({ tc, st }) {
   )
 }
 
+
+// 🎯 right-click menu — smart-positioned so it never clips off-screen
+function MapMenu({ x, y, onAdd, onManage, onClose }) {
+  const [menuRef, style] = useSmartMenuPos(x, y)
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
+      <div className="ctx-menu" ref={menuRef} style={style} onClick={(e) => e.stopPropagation()}>
+        <button onClick={onAdd}>➕ Add new points on canvas</button>
+        <button onClick={onManage}>⚙ Manage existing points…</button>
+      </div>
+    </div>
+  )
+}
 
 // ---- 🎯 mapped-point management: popup listing a step's mapped nodes & paths ----
 function MapManageModal({ tc, stepId, onClose }) {
@@ -847,12 +861,10 @@ export default function TestDashboard() {
       {bugCtx && <BugModal context={bugCtx} onClose={() => setBugCtx(null)} />}
       {issueCtx && <IssueModal context={issueCtx} onClose={() => setIssueCtx(null)} />}
       {mapMenu && tc && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={() => setMapMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMapMenu(null) }}>
-          <div className="ctx-menu" style={{ position: 'fixed', left: mapMenu.x, top: mapMenu.y }} onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => { const id = mapMenu.stepId; setMapMenu(null); s.startStepMapping(tc.id, id) }}>➕ Add new points on canvas</button>
-            <button onClick={() => { setManageMap(mapMenu.stepId); setMapMenu(null) }}>⚙ Manage existing points…</button>
-          </div>
-        </div>
+        <MapMenu x={mapMenu.x} y={mapMenu.y}
+          onAdd={() => { const id = mapMenu.stepId; setMapMenu(null); s.startStepMapping(tc.id, id) }}
+          onManage={() => { setManageMap(mapMenu.stepId); setMapMenu(null) }}
+          onClose={() => setMapMenu(null)} />
       )}
       {manageMap && tc && <MapManageModal tc={tc} stepId={manageMap} onClose={() => setManageMap(null)} />}
       {importing && <ImportWizard defaultSuiteId={suiteId} onClose={(newSuiteId) => { setImporting(false); if (newSuiteId) setSuiteId(newSuiteId) }} />}
