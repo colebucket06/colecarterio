@@ -24,6 +24,10 @@ export const NODE_TEMPLATES = [
 
 export const STATUS_OPTIONS = ['Pass', 'Fail', 'Partial Pass', 'Not Applicable', 'Blocked']
 
+// password policy: 16+ chars with upper & lower case, a digit, and a special character
+export const validPassword = (pw) => typeof pw === 'string' && pw.length >= 16
+  && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /[0-9]/.test(pw) && /[^A-Za-z0-9]/.test(pw)
+
 // NODE_TEMPLATES merged with the project's global type overrides (color / icon / label).
 // User-created custom types live in typeDefs with a __custom flag and surface here
 // alongside the built-ins, so palettes / dialogs / filters treat them identically.
@@ -181,14 +185,17 @@ export const useStore = create((set, get) => ({
   // Roles: admin (everything) · user (edit projects they own / were shared with editor
   // rights) · viewer (read-only; via account OR an unauthenticated view-only share link)
   accounts: [
-    { email: 'colebucket06@gmail.com', firstName: 'Cole', lastName: 'Carter', business: 'colecarter.io', role: 'admin' },
+    { email: 'colebucket06@gmail.com', firstName: 'Cole', lastName: 'Carter', business: 'colecarter.io', role: 'admin', password: 'Pathways!Admin#2026Cc', enabled: true },
+    { email: 'kyle.cook@charter.net', firstName: 'Kyle', lastName: 'Cook', business: 'Charter', role: 'user', password: 'Charter#Kyle!2026$Pw', enabled: true },
   ],
   accessRequests: [],
   session: null, // { email, name, role, sharedSuiteIds: null | [suiteId], launched: bool }
-  login: (email) => {
-    const e = (email || '').trim().toLowerCase()
+  login: (email, password) => {
+    const e = (email || '').trim().toLowerCase() // usernames are case-insensitive
     const acct = get().accounts.find((a) => a.email.toLowerCase() === e)
     if (!acct) return 'No account found for this email — request access below.'
+    if (acct.enabled === false) return 'This account has been disabled — contact the administrator.'
+    if ((acct.password || '') !== password) return 'Incorrect password.'
     // a "user" only gets edit rights on projects where they are owner/editor members
     const member = get().project.members.find((m) => m.email.toLowerCase() === e)
     const canEdit = acct.role === 'admin' || (acct.role === 'user' && ['owner', 'editor'].includes(member?.role))
@@ -200,8 +207,18 @@ export const useStore = create((set, get) => ({
   },
   logout: () => set({ session: null }),
   launchApp: () => set((s) => ({ session: s.session ? { ...s.session, launched: true } : null })),
-  addAccount: (acct) => set((s) => ({ accounts: [...s.accounts, acct] })),
+  addAccount: (acct) => set((s) => ({ accounts: [...s.accounts, { enabled: true, ...acct }] })),
   setAccountRole: (email, role) => set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, role } : a)) })),
+  setAccountEnabled: (email, enabled) => {
+    set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, enabled } : a)) }))
+    get().log('project', 'share', `Account ${email} ${enabled ? 'enabled' : 'disabled'}`)
+  },
+  setAccountPassword: (email, password) => {
+    if (!validPassword(password)) return 'Passwords need 16+ characters with upper & lower case, a number, and a special character.'
+    set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, password } : a)) }))
+    get().log('project', 'share', `Password reset for ${email}`)
+    return null
+  },
   requestAccess: (form) => {
     const req = { id: uid('rq'), ...form, ts: now(), status: 'pending' }
     set((s) => ({ accessRequests: [req, ...s.accessRequests] }))
@@ -216,8 +233,9 @@ export const useStore = create((set, get) => ({
     const r = get().accessRequests.find((x) => x.id === id)
     if (!r) return
     if (role) {
-      get().addAccount({ email: r.email, firstName: r.firstName, lastName: r.lastName, business: r.business || '', role })
-      get().notify(r.email, 'share', 'Pathways.io — access approved', `Your access request was approved with the "${role}" role. Sign in with ${r.email}.`)
+      const temp = 'Pathways!' + Math.random().toString(36).slice(2, 10) + '#2026Aa'
+      get().addAccount({ email: r.email, firstName: r.firstName, lastName: r.lastName, business: r.business || '', role, password: temp })
+      get().notify(r.email, 'share', 'Pathways.io — access approved', `Your access request was approved with the "${role}" role. Sign in with ${r.email} and the temporary password: ${temp}`)
     }
     set((s) => ({ accessRequests: s.accessRequests.map((x) => (x.id === id ? { ...x, status: role ? 'approved' : 'denied' } : x)) }))
     get().log('project', 'share', `Access request from ${r.firstName} ${r.lastName} ${role ? `approved as ${role}` : 'denied'}`)

@@ -449,6 +449,7 @@ function ShareLinkBox() {
 // admin-only: pending access requests + account role management
 function AccountAdmin() {
   const s = useStore()
+  const [revealPw, setRevealPw] = useState(null)
   const pending = s.accessRequests.filter((r) => r.status === 'pending')
   return (
     <div>
@@ -468,21 +469,39 @@ function AccountAdmin() {
         </div>
       ))}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, margin: '10px 0 6px' }}>Accounts</div>
-      {s.accounts.map((a) => (
-        <div className="member-row" key={a.email}>
-          <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{(a.firstName[0] + (a.lastName[0] || '')).toUpperCase()}</span>
-          <b>{a.firstName} {a.lastName}</b>
-          <span className="em">{a.email}</span>
-          <select style={{ marginLeft: 'auto' }} value={a.role} onChange={(e) => s.setAccountRole(a.email, e.target.value)}
-            disabled={a.email === s.session?.email} title={a.email === s.session?.email ? 'You cannot change your own role' : 'Role'}>
-            <option value="admin">Administrator</option>
-            <option value="user">User</option>
-            <option value="viewer">Viewer</option>
-          </select>
-        </div>
-      ))}
+      {s.accounts.map((a) => {
+        const self = a.email === s.session?.email
+        const off = a.enabled === false
+        return (
+          <div key={a.email} className="acct-block" style={off ? { opacity: .55 } : {}}>
+            <div className="member-row" style={{ marginBottom: 0 }}>
+              <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{(a.firstName[0] + (a.lastName[0] || '')).toUpperCase()}</span>
+              <b>{a.firstName} {a.lastName}</b>
+              <span className="em">{a.email}</span>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 5, alignItems: 'center' }}>
+                <select value={a.role} onChange={(e) => s.setAccountRole(a.email, e.target.value)}
+                  disabled={self} title={self ? 'You cannot change your own role' : 'Role'}>
+                  <option value="admin">Administrator</option>
+                  <option value="user">User</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+                <button className={'btn small' + (off ? '' : ' primary')} disabled={self}
+                  title={self ? 'You cannot disable your own account' : off ? 'Enable this account' : 'Disable this account — sign-in will be refused'}
+                  onClick={() => s.setAccountEnabled(a.email, off)}>{off ? '🚫 disabled' : '✓ enabled'}</button>
+              </span>
+            </div>
+            <div className="cred-row">
+              <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>credentials</span>
+              <span className="em">{a.email}</span>
+              <span className="pw-box">{revealPw === a.email ? (a.password || '(none)') : '••••••••••••••••'}</span>
+              <button className="btn small" title={revealPw === a.email ? 'Hide password' : 'Reveal password'}
+                onClick={() => setRevealPw(revealPw === a.email ? null : a.email)}>{revealPw === a.email ? '🙈' : '👁'}</button>
+            </div>
+          </div>
+        )
+      })}
       <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 8 }}>
-        Administrator: full control. User: edit rights on projects they own or were shared with editor permissions. Viewer: read-only review of what's shared with them.
+        Administrator: full control. User: edit rights on projects they own or were shared with editor permissions. Viewer: read-only review of what's shared with them. Passwords require 16+ characters with mixed case, a number, and a special character. ⚠ Credential visibility here is temporary — once the Phase 2 backend lands, passwords are hashed and retrievable only via administrator request or a direct Postgres query.
       </div>
     </div>
   )
@@ -560,7 +579,7 @@ function ProfileModal({ onClose }) {
         </Fold>
 
         {s.session?.role === 'admin' && (
-          <Fold title="🔐 Access & Accounts"
+          <Fold title="🔐 User Administration"
             badge={s.accessRequests.filter((r) => r.status === 'pending').length > 0
               ? <span className="tag test">{s.accessRequests.filter((r) => r.status === 'pending').length} pending</span>
               : <span className="tag project">{s.accounts.length} accounts</span>}>

@@ -816,3 +816,8 @@ body.light .btn.warn { color: #c2610c; }
 }
 .canvas-wrap.brushing .react-flow__node { cursor: copy !important; }
 body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
+
+/* user administration credential rows */
+.acct-block { border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; margin-bottom: 7px; }
+.cred-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; padding-top: 5px; border-top: 1px dashed var(--border); }
+.pw-box { flex: 1; font-family: Consolas, monospace; font-size: 12px; letter-spacing: 1px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

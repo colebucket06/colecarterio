@@ -25,11 +25,12 @@ export function PathwaysIcon({ size = 64 }) {
 export function Landing() {
   const s = useStore()
   const [email, setEmail] = useState('')
+  const [pw, setPw] = useState('')
   const [loginErr, setLoginErr] = useState(null)
   const [form, setForm] = useState({ firstName: '', lastName: '', business: '', email: '', justification: '' })
   const [errs, setErrs] = useState({})
   const [sent, setSent] = useState(null)
-  const doLogin = () => setLoginErr(s.login(email) || null)
+  const doLogin = () => setLoginErr(s.login(email, pw) || null)
   const submit = () => {
     const e = {}
     if (!form.firstName.trim()) e.firstName = true
@@ -65,9 +66,13 @@ export function Landing() {
       <div className="landing-cards">
         <div className="landing-card">
           <h3>Sign in</h3>
-          <div className="field"><label>Email (username)</label>
+          <div className="field"><label>Email (username — not case-sensitive)</label>
             <input autoFocus value={email} placeholder="you@company.com"
               onChange={(e) => { setEmail(e.target.value); setLoginErr(null) }}
+              onKeyDown={(e) => e.key === 'Enter' && doLogin()} /></div>
+          <div className="field"><label>Password</label>
+            <input type="password" value={pw} placeholder="••••••••••••••••"
+              onChange={(e) => { setPw(e.target.value); setLoginErr(null) }}
               onKeyDown={(e) => e.key === 'Enter' && doLogin()} /></div>
           {loginErr && <div className="field-err">⚠ {loginErr}</div>}
           <button className="btn primary" style={{ width: '100%', marginTop: 6 }} onClick={doLogin}>→ Sign in</button>
