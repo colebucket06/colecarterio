@@ -329,6 +329,90 @@ function NodeTypeManager() {
   )
 }
 
+// multi-project management: create, switch, delete; the active project drives both tabs
+function ProjectsManager() {
+  const s = useStore()
+  const [name, setName] = useState('')
+  const create = () => { if (name.trim()) { s.addProjectSpace(name); setName('') } }
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
+        <input placeholder="New project name" value={name} style={{ flex: 1 }}
+          onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />
+        <button className="btn small primary" disabled={!name.trim()} onClick={create}>＋ Add project</button>
+      </div>
+      <div className="member-row">
+        <b>{s.project.name}</b>
+        <span className="tag test">active</span>
+        <span className="em" style={{ marginLeft: 'auto' }}>{s.project.members.length} member{s.project.members.length === 1 ? '' : 's'}</span>
+      </div>
+      {s.projectsHub.map((p) => (
+        <div className="member-row" key={p.id}>
+          <b>{p.name}</b>
+          <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            <button className="btn small primary" title="Make this the active project" onClick={() => s.switchProject(p.id)}>→ Switch</button>
+            <button className="btn small danger" title="Delete this project" onClick={() => s.deleteProjectSpace(p.id)}>🗑</button>
+          </span>
+        </div>
+      ))}
+      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 6 }}>
+        The Workflow and Test Management tabs always reflect the active project (also switchable from the top bar). The active project can't be deleted — switch away first. All projects save together in the project file.
+      </div>
+    </div>
+  )
+}
+
+// community collaborators: share with users per-project or globally across all projects
+function CommunityCollaborators() {
+  const s = useStore()
+  const [scope, setScope] = useState('project')
+  const [cname, setCname] = useState('')
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('viewer')
+  const add = () => {
+    const nm = cname.trim() || email.split('@')[0]
+    if (scope === 'global') s.addGlobalCollaborator(nm, email.trim(), role)
+    else s.addMember(nm, email.trim(), role)
+    setCname(''); setEmail('')
+  }
+  const rows = scope === 'global' ? s.globalCollaborators : s.project.members
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 12.5 }}>Sharing scope</span>
+        <span className="seg">
+          <button className={scope === 'project' ? 'on accent' : ''} title="Collaborators on the active project only"
+            onClick={() => setScope('project')}>This project</button>
+          <button className={scope === 'global' ? 'on accent' : ''} title="Collaborators with access to every project"
+            onClick={() => setScope('global')}>All projects (global)</button>
+        </span>
+      </div>
+      {rows.length === 0 && <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>No {scope === 'global' ? 'global' : 'project'} collaborators yet.</div>}
+      {rows.map((m) => (
+        <div className="member-row" key={m.id}>
+          <span className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{m.name.slice(0, 2).toUpperCase()}</span>
+          <b>{m.name}</b><span className="em">{m.email}</span>
+          <span className="tag project">{m.role}{scope === 'global' ? ' · all projects' : ''}</span>
+          {m.role !== 'owner' && (
+            <button className="btn small" onClick={() => (scope === 'global' ? s.removeGlobalCollaborator(m.id) : s.removeMember(m.id))}>✕</button>
+          )}
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 7, marginTop: 8, flexWrap: 'wrap' }}>
+        <input placeholder="Name" value={cname} onChange={(e) => setCname(e.target.value)} style={{ width: 110 }} />
+        <input placeholder="email@company.com" value={email} onChange={(e) => setEmail(e.target.value)} style={{ flex: 1, minWidth: 150 }} />
+        <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="viewer">viewer</option><option value="editor">editor</option>
+        </select>
+        <button className="btn small primary" disabled={!/\S+@\S+\.\S+/.test(email)} onClick={add}>＋ Add {scope === 'global' ? 'globally' : 'to project'}</button>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 8 }}>
+        Global collaborators get their role on every project; project collaborators only on this one. What they can actually see is refined further with the 🌐 share toggles on individual workflows, suites, cases, and steps — unshared elements stay hidden from viewers.
+      </div>
+    </div>
+  )
+}
+
 // Project Owners generate view-only links — viewers open them without signing in
 function ShareLinkBox() {
   const s = useStore()
@@ -424,6 +508,10 @@ function ProfileModal({ onClose }) {
         <div className="field"><label>Project name</label>
           <input value={s.project.name} onChange={(e) => s.updateProject({ name: e.target.value })} /></div>
 
+        <Fold title="📁 Projects" badge={<span className="tag project">{s.projectsHub.length + 1}</span>}>
+          <ProjectsManager />
+        </Fold>
+
         <Fold title="🎨 Appearance & Theme"
           badge={<span className="tag project">{s.theme.mode}{s.theme.basicKey ? ` · ${PALETTES.find((p) => p.key === s.theme.basicKey)?.name || 'palette'}` : ''}</span>}>
           <ThemeSchemeEditor />
@@ -466,6 +554,11 @@ function ProfileModal({ onClose }) {
             Prototype note: invitations and notifications are recorded in the project model, change log, and the notification outbox. Real email delivery activates with the Phase 2 backend.
           </div>
         </Fold>
+        <Fold title="🌐 Community Collaborators"
+          badge={s.globalCollaborators.length > 0 ? <span className="tag project">{s.globalCollaborators.length} global</span> : null}>
+          <CommunityCollaborators />
+        </Fold>
+
         {s.session?.role === 'admin' && (
           <Fold title="🔐 Access & Accounts"
             badge={s.accessRequests.filter((r) => r.status === 'pending').length > 0
@@ -518,11 +611,20 @@ export default function App() {
       <header className="topbar">
         <div className="logo"><PathwaysIcon size={30} />Pathways.io</div>
         <nav className="nav-tabs">
-          <button className={'nav-tab' + (s.page === 'diagram' ? ' active' : '')} onClick={() => s.setPage('diagram')}>Workflow Diagrams</button>
+          <button className={'nav-tab' + (s.page === 'diagram' ? ' active' : '')} onClick={() => s.setPage('diagram')}>Workflow</button>
           <button className={'nav-tab' + (s.page === 'tests' ? ' active' : '')} onClick={() => s.setPage('tests')}>Test Management</button>
         </nav>
         <span className="spacer" />
-        <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>{s.project.name}</span>
+        {canEdit ? (
+          <select value={s.project.id} title="Active project — Workflow and Test Management reflect this project"
+            style={{ fontSize: 12, maxWidth: 190 }}
+            onChange={(e) => s.switchProject(e.target.value)}>
+            <option value={s.project.id}>{s.project.name}</option>
+            {s.projectsHub.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : (
+          <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>{s.project.name}</span>
+        )}
         <span className="tag project" title={`Signed in as ${s.session.name}`}>{s.session.role}{!canEdit && s.session.role !== 'viewer' ? ' · view-only' : ''}</span>
         {canEdit && <button className="btn small" onClick={() => exportProjectFile(s.exportProject(), s.project.name)}>💾 Save project</button>}
         {canEdit && <button className="btn small" onClick={() => fileRef.current?.click()}>📂 Open</button>}

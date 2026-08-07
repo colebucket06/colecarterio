@@ -266,7 +266,7 @@ export default function TestDashboard() {
   // link further limits Test Management to the suites shared with them
   const canEdit = s.session?.canEdit === true
   const sharedIds = s.session?.sharedSuiteIds
-  const visibleSuites = sharedIds ? s.suites.filter((su) => sharedIds.includes(su.id)) : s.suites
+  const visibleSuites = (sharedIds ? s.suites.filter((su) => sharedIds.includes(su.id)) : s.suites).filter((su) => canEdit || su.shared !== false)
   const [tab, setTab] = useState('suites')
   const [suiteId, setSuiteId] = useState(s.suites[0]?.id || null)
   const [planId, setPlanId] = useState(s.plans[0]?.id || null)
@@ -289,7 +289,7 @@ export default function TestDashboard() {
   const suite = s.suites.find((x) => x.id === suiteId)
   const plan = s.plans.find((x) => x.id === planId)
   const tc = s.cases.find((c) => c.id === caseId)
-  const suiteCases = (suite?.caseIds || []).map((id) => s.cases.find((c) => c.id === id)).filter(Boolean)
+  const suiteCases = (suite?.caseIds || []).map((id) => s.cases.find((c) => c.id === id)).filter(Boolean).filter((c) => canEdit || c.shared !== false)
   const unattached = s.cases.filter((c) => suite && !suite.caseIds.includes(c.id))
   const suiteReqKinds = (suite?.requirementTypes || []).map((r) => r.kind)
 
@@ -330,6 +330,12 @@ export default function TestDashboard() {
           <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', maxHeight: '46%', overflowY: 'auto' }}>
             <div className="field"><label>Suite name</label>
               <input value={suite.name} onChange={(e) => s.updateSuite(suite.id, { name: e.target.value })} /></div>
+            {canEdit && (
+              <label className="toggle" style={{ display: 'flex', marginBottom: 8 }}
+                title="Unshared suites (and everything in them) are hidden from viewers and community members">
+                <input type="checkbox" checked={suite.shared !== false} onChange={(e) => s.setSuiteShared(suite.id, e.target.checked)} />
+                🌐 Shared with community</label>
+            )}
             <div className="field"><label>Description</label>
               <input value={suite.description} onChange={(e) => s.updateSuite(suite.id, { description: e.target.value })} /></div>
             <SuiteRequirements suite={suite} />
@@ -451,6 +457,11 @@ export default function TestDashboard() {
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <input style={{ fontSize: 17, fontWeight: 700, flex: 1 }} value={tc.name}
                 onChange={(e) => s.updateCase(tc.id, { name: e.target.value })} />
+              {canEdit && (
+                <label className="toggle" title="Unshared cases are hidden from viewers and community members">
+                  <input type="checkbox" checked={tc.shared !== false} onChange={(e) => s.setCaseShared(tc.id, e.target.checked)} />
+                  🌐</label>
+              )}
               <button className="btn primary" onClick={() => setRunning(true)}>▶ Run</button>
               <button className="btn danger small" onClick={() => { s.deleteCase(tc.id); setCaseId(null) }}>Delete</button>
             </div>
@@ -475,7 +486,7 @@ export default function TestDashboard() {
                   <span style={{ width: 88 }} />
                 </div>
               )}
-              {tc.steps.map((st, i) => (
+              {tc.steps.filter((st) => canEdit || st.shared !== false).map((st, i) => (
                 <React.Fragment key={st.id}>
                   <div className="step-row">
                     <span className="num" style={{ cursor: 'pointer' }} title="Requirements & attachments"
@@ -484,6 +495,9 @@ export default function TestDashboard() {
                       onChange={(e) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, action: e.target.value } : x)) })} />
                     <input placeholder="Expected result — what should happen" value={st.expected} title="Expected Result"
                       onChange={(e) => s.updateCase(tc.id, { steps: tc.steps.map((x) => (x.id === st.id ? { ...x, expected: e.target.value } : x)) })} />
+                    <button className="btn small" style={{ marginTop: 3, opacity: st.shared === false ? 1 : undefined }}
+                      title={st.shared === false ? 'This step is hidden from viewers — click to share it' : 'Shared with viewers — click to hide this step'}
+                      onClick={() => s.setStepShared(tc.id, st.id, st.shared === false)}>{st.shared === false ? '🔒' : '🌐'}</button>
                     <button className="btn small" style={{ marginTop: 3 }}
                       title={`Map this step to diagram nodes / paths (${(st.targetIds || []).length} mapped) — the mapped elements highlight while this step executes`}
                       onClick={() => s.startStepMapping(tc.id, st.id)}>🎯{(st.targetIds || []).length > 0 ? <small>{st.targetIds.length}</small> : ''}</button>

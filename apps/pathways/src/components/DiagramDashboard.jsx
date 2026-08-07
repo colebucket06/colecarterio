@@ -1053,6 +1053,16 @@ function Canvas() {
   const edgeSelRef = useRef({ id: null, was: false, t: 0 })
   // role gating: viewers get navigation, view options, filtering and export only
   const canEdit = useStore((st) => st.session?.canEdit === true)
+  // viewers never sit on an unshared workflow — snap to the first shared one
+  useEffect(() => {
+    if (!canEdit) {
+      const d = s.diagrams.find((x) => x.id === s.activeDiagramId)
+      if (d && d.shared === false) {
+        const first = s.diagrams.find((x) => x.shared !== false)
+        if (first) s.setActiveDiagram(first.id)
+      }
+    }
+  }, [canEdit, s.activeDiagramId, s.diagrams]) // eslint-disable-line
   const [selection, setSelection] = useState(null)
   const [selectedIds, setSelectedIds] = useState([])
   const [exporting, setExporting] = useState(false)
@@ -1226,7 +1236,9 @@ function Canvas() {
       onClick={() => { setMenu(null); if (useStore.getState().wpMenu) useStore.setState({ wpMenu: null }) }}>
       <div className="canvas-toolbar">
         <select value={s.activeDiagramId || ''} onChange={(e) => s.setActiveDiagram(e.target.value)}>
-          {s.diagrams.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          {(canEdit ? s.diagrams : s.diagrams.filter((d) => d.shared !== false)).map((d) => (
+            <option key={d.id} value={d.id}>{d.name}{canEdit && d.shared === false ? ' 🔒' : ''}</option>
+          ))}
         </select>
         {canEdit && (<>
           <button className="btn small" onClick={() => s.addDiagram(`Diagram ${s.diagrams.length + 1}`)}>＋ New</button>
@@ -1248,6 +1260,11 @@ function Canvas() {
         <button className="btn small" onClick={() => setExporting(true)} title="Export diagram — PDF, Visio, draw.io/Lucidchart, SVG, PNG, Mermaid">⤓ Export</button>
         <label className="toggle"><input type="checkbox" checked={s.showCoverage} onChange={(e) => s.setShowCoverage(e.target.checked)} />
           test coverage</label>
+        {canEdit && diagram && (
+          <label className="toggle" title="Share this workflow with the community — unshared workflows are hidden from viewers and community members">
+            <input type="checkbox" checked={diagram.shared !== false} onChange={(e) => s.setDiagramShared(diagram.id, e.target.checked)} />
+            🌐 shared</label>
+        )}
       </div>
       <ReactFlow
         nodes={nodes} edges={edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}

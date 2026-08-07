@@ -88,6 +88,7 @@ const defaultReqTypes = () => ([
 export const useStore = create((set, get) => ({
   page: 'diagram',
   project: {
+    id: 'proj_tallgrass',
     name: 'Tallgrass MOC 2', description: 'MOC 2 Test Cases (Rev 1) — prepared for Tallgrass Energy',
     createdAt: now(), schemaVersion: 2,
     members: [
@@ -193,6 +194,7 @@ export const useStore = create((set, get) => ({
     const canEdit = acct.role === 'admin' || (acct.role === 'user' && ['owner', 'editor'].includes(member?.role))
     set({ session: { email: acct.email, name: `${acct.firstName} ${acct.lastName}`, role: acct.role, canEdit, sharedSuiteIds: null, launched: false },
       currentUser: { ...get().currentUser, name: `${acct.firstName} ${acct.lastName}`, email: acct.email } })
+    get().refreshSessionPerms() // includes global community collaborators
     get().log('project', 'view', `${acct.firstName} ${acct.lastName} signed in (${acct.role})`)
     return null
   },
@@ -1129,14 +1131,24 @@ export const useStore = create((set, get) => ({
   },
   removeMember: (id) => set((s) => ({ project: { ...s.project, members: s.project.members.filter((m) => m.id !== id) } })),
 
+  // snapshot of the ACTIVE project's data only (no platform-level state)
+  snapshotProject: () => {
+    const s = get()
+    return { project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs }
+  },
+  // full platform export: active project + all stashed projects + global state
   exportProject: () => {
     const s = get()
-    return { schemaVersion: 2, exportedAt: now(), project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs, accounts: s.accounts, accessRequests: s.accessRequests }
+    return { schemaVersion: 3, exportedAt: now(), ...get().snapshotProject(),
+      projectsHub: s.projectsHub, globalCollaborators: s.globalCollaborators,
+      accounts: s.accounts, accessRequests: s.accessRequests }
   },
-  importProject: (obj) => {
+  // load a project snapshot into the active workspace (platform state untouched)
+  loadSnapshot: (obj) => {
     set({
-      project: obj.project, diagrams: obj.diagrams, suites: obj.suites, cases: obj.cases,
-      plans: obj.plans || [], planRun: null,
+      project: { id: obj.project?.id || uid('proj'), members: [], ...obj.project },
+      diagrams: obj.diagrams || [], suites: obj.suites || [], cases: obj.cases || [],
+      plans: obj.plans || [], planRun: null, planPreview: null, lastRunSummary: null, stepMapping: null, brush: null,
       changeLog: obj.changeLog || [], notifications: obj.notifications || [],
       ...(obj.viewSettings ? { viewSettings: obj.viewSettings } : {}),
       ...(obj.attrDefs ? { attrDefs: obj.attrDefs } : {}),
@@ -1144,8 +1156,6 @@ export const useStore = create((set, get) => ({
       savedThemes: obj.savedThemes || [],
       typeDefs: obj.typeDefs || {},
       bugs: obj.bugs || [],
-      ...(obj.accounts ? { accounts: obj.accounts } : {}),
-      ...(obj.accessRequests ? { accessRequests: obj.accessRequests } : {}),
       // the default saved theme (★) wins on open; otherwise restore the live theme as saved
       ...((() => {
         const def = (obj.savedThemes || []).find((t) => t.isDefault)
@@ -1154,7 +1164,103 @@ export const useStore = create((set, get) => ({
       })()),
       activeDiagramId: obj.diagrams?.[0]?.id || null,
     })
-    get().log('project', 'import', `Imported project "${obj.project?.name}"`)
+  },
+  importProject: (obj) => {
+    get().loadSnapshot(obj)
+    set({
+      projectsHub: obj.projectsHub || [],
+      globalCollaborators: obj.globalCollaborators || [],
+      ...(obj.accounts ? { accounts: obj.accounts } : {}),
+      ...(obj.accessRequests ? { accessRequests: obj.accessRequests } : {}),
+    })
+    get().refreshSessionPerms()
+    get().log('project', 'import', `Imported "${obj.project?.name}"${(obj.projectsHub || []).length ? ` + ${obj.projectsHub.length} more project(s)` : ''}`)
+  },
+
+  // ---- multi-project hub: the active project lives in the workspace; the rest are stashed snapshots ----
+  projectsHub: [], // [{ id, name, snapshot }]
+  stashActive: () => {
+    const s = get()
+    const snap = get().snapshotProject()
+    set((st) => ({ projectsHub: [...st.projectsHub.filter((p) => p.id !== s.project.id), { id: s.project.id, name: s.project.name, snapshot: snap }] }))
+  },
+  addProjectSpace: (name) => {
+    get().stashActive()
+    const me = get().currentUser
+    const pid = uid('proj')
+    const d = { id: uid('d'), name: 'Diagram 1', nodes: [], edges: [] }
+    set({
+      project: { id: pid, name: (name || '').trim() || 'New Project', description: '', createdAt: now(), schemaVersion: 2,
+        members: [{ id: uid('u'), name: me.name, email: me.email, role: 'owner' }] },
+      diagrams: [d], activeDiagramId: d.id, suites: [], cases: [], plans: [], planRun: null, planPreview: null,
+      changeLog: [], notifications: [], typeFormats: {}, bugs: [],
+    })
+    get().refreshSessionPerms()
+    get().log('project', 'create', `Created project "${(name || '').trim() || 'New Project'}"`)
+    return pid
+  },
+  switchProject: (id) => {
+    if (id === get().project.id) return
+    const target = get().projectsHub.find((p) => p.id === id)
+    if (!target) return
+    get().stashActive()
+    get().loadSnapshot(target.snapshot)
+    set((st) => ({ projectsHub: st.projectsHub.filter((p) => p.id !== id) }))
+    get().refreshSessionPerms()
+    get().log('project', 'view', `Switched to project "${target.name}"`)
+  },
+  deleteProjectSpace: (id) => {
+    const p = get().projectsHub.find((x) => x.id === id)
+    if (!p) return // the active project can't be deleted — switch away first
+    set((st) => ({ projectsHub: st.projectsHub.filter((x) => x.id !== id) }))
+    get().log('project', 'delete', `Deleted project "${p.name}"`)
+  },
+
+  // ---- community collaborators: per-project members (existing) or platform-wide ----
+  globalCollaborators: [], // [{ id, name, email, role: 'viewer' | 'editor' }] — apply to every project
+  addGlobalCollaborator: (name, email, role) => {
+    set((s) => ({ globalCollaborators: [...s.globalCollaborators, { id: uid('gc'), name, email, role }] }))
+    get().refreshSessionPerms()
+    get().log('project', 'share', `Added ${name} <${email}> as a global ${role} collaborator (all projects)`)
+  },
+  removeGlobalCollaborator: (id) => {
+    const g = get().globalCollaborators.find((x) => x.id === id)
+    set((s) => ({ globalCollaborators: s.globalCollaborators.filter((x) => x.id !== id) }))
+    get().refreshSessionPerms()
+    if (g) get().log('project', 'share', `Removed global collaborator ${g.name}`)
+  },
+  // recompute the session's edit rights against the ACTIVE project + global collaborators
+  refreshSessionPerms: () => {
+    const ses = get().session
+    if (!ses || !ses.email) return
+    const e = ses.email.toLowerCase()
+    const member = get().project.members.find((m) => m.email.toLowerCase() === e)
+    const glob = get().globalCollaborators.find((g) => g.email.toLowerCase() === e)
+    const canEdit = ses.role === 'admin'
+      || (ses.role === 'user' && (['owner', 'editor'].includes(member?.role) || glob?.role === 'editor'))
+    if (canEdit !== ses.canEdit) set({ session: { ...ses, canEdit } })
+  },
+
+  // ---- granular sharing: exactly which elements the community / viewers can see ----
+  setDiagramShared: (id, v) => {
+    set((s) => ({ diagrams: s.diagrams.map((d) => (d.id === id ? { ...d, shared: v } : d)) }))
+    const d = get().diagrams.find((x) => x.id === id)
+    get().log('project', 'share', `Workflow "${d?.name}" is now ${v ? 'shared with' : 'hidden from'} the community`)
+  },
+  setSuiteShared: (id, v) => {
+    set((s) => ({ suites: s.suites.map((su) => (su.id === id ? { ...su, shared: v } : su)) }))
+    const su = get().suites.find((x) => x.id === id)
+    get().log('test', 'share', `Suite "${su?.name}" is now ${v ? 'shared' : 'unshared'}`)
+  },
+  setCaseShared: (id, v) => {
+    set((s) => ({ cases: s.cases.map((c) => (c.id === id ? { ...c, shared: v } : c)) }))
+    const c = get().cases.find((x) => x.id === id)
+    get().log('test', 'share', `Case "${c?.name}" is now ${v ? 'shared' : 'unshared'}`)
+  },
+  setStepShared: (caseId, stepId, v) => {
+    set((s) => ({ cases: s.cases.map((c) => (c.id === caseId
+      ? { ...c, steps: c.steps.map((st) => (st.id === stepId ? { ...st, shared: v } : st)) } : c)) }))
+    get().log('test', 'share', `A test step is now ${v ? 'shared' : 'unshared'}`, caseId)
   },
 }))
 
