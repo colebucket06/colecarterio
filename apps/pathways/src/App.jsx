@@ -353,7 +353,26 @@ function NodeTypeManager() {
 function ProjectsManager() {
   const s = useStore()
   const [name, setName] = useState('')
+  const [editing, setEditing] = useState(null) // { id, value }
   const create = () => { if (name.trim()) { s.addProjectSpace(name); setName('') } }
+  const saveEdit = () => {
+    if (editing?.value.trim()) s.renameProjectSpace(editing.id, editing.value)
+    setEditing(null)
+  }
+  // plain render helper (NOT a component — an inline component type would remount
+  // the input on every keystroke and drop focus)
+  const nameCell = (id, label) => editing?.id === id ? (
+    <span style={{ display: 'flex', gap: 4, alignItems: 'center', flex: 1 }}>
+      <input autoFocus value={editing.value} style={{ flex: 1 }}
+        onChange={(e) => setEditing({ id, value: e.target.value })}
+        onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(null) }} />
+      <button className="btn small primary" disabled={!editing.value.trim()} onClick={saveEdit}>✓</button>
+      <button className="btn small" onClick={() => setEditing(null)}>✕</button>
+    </span>
+  ) : (<>
+    <b>{label}</b>
+    <button className="btn small" title="Rename this project" onClick={() => setEditing({ id, value: label })}>✏</button>
+  </>)
   return (
     <div>
       <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
@@ -362,13 +381,13 @@ function ProjectsManager() {
         <button className="btn small primary" disabled={!name.trim()} onClick={create}>＋ Add project</button>
       </div>
       <div className="member-row">
-        <b>{s.project.name}</b>
+        {nameCell(s.project.id, s.project.name)}
         <span className="tag test">active</span>
         <span className="em" style={{ marginLeft: 'auto' }}>{s.project.members.length} member{s.project.members.length === 1 ? '' : 's'}</span>
       </div>
       {s.projectsHub.map((p) => (
         <div className="member-row" key={p.id}>
-          <b>{p.name}</b>
+          {nameCell(p.id, p.name)}
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
             <button className="btn small primary" title="Make this the active project" onClick={() => s.switchProject(p.id)}>→ Switch</button>
             <button className="btn small danger" title="Delete this project" onClick={() => s.deleteProjectSpace(p.id)}>🗑</button>

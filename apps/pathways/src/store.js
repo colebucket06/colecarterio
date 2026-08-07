@@ -148,6 +148,8 @@ export const useStore = create((set, get) => ({
     showComments: true,
     // path attribution field visibility
     showEdgeLabels: true, showEdgeLogic: false, pathClassColors: true,
+    // per-classification coloring: disable one class and it falls back to the default path color
+    pathClassEnabled: { positive: true, negative: true },
   },
   // ---- browser cache & cookies: opt-in credential remember + common-terms cache ----
   persistPrefs: persistLoad('prefs', { rememberLogin: false, cacheTerms: true }),
@@ -615,6 +617,23 @@ export const useStore = create((set, get) => ({
   renameDiagram: (id, name) => {
     set((s) => ({ diagrams: s.diagrams.map((d) => (d.id === id ? { ...d, name } : d)) }))
     get().log('diagram', 'rename', `Renamed diagram to "${name}"`, id)
+  },
+  // remove a diagram from the project (UI confirms first). Deleting the last
+  // diagram leaves a fresh empty one so the workspace always has a canvas.
+  deleteDiagram: (id) => {
+    const d = get().diagrams.find((x) => x.id === id)
+    if (!d) return
+    set((s) => {
+      let diagrams = s.diagrams.filter((x) => x.id !== id)
+      let activeDiagramId = s.activeDiagramId
+      if (!diagrams.length) {
+        const fresh = { id: uid('d'), name: 'Diagram 1', nodes: [], edges: [] }
+        diagrams = [fresh]
+        activeDiagramId = fresh.id
+      } else if (activeDiagramId === id) activeDiagramId = diagrams[0].id
+      return { diagrams, activeDiagramId }
+    })
+    get().log('diagram', 'delete', `Deleted diagram "${d.name}" (${d.nodes.length} nodes, ${d.edges.length} paths)`, id)
   },
   updateActive: (fn) => set((s) => ({
     diagrams: s.diagrams.map((d) => (d.id === s.activeDiagramId ? fn(d) : d)),
@@ -1419,6 +1438,27 @@ export const useStore = create((set, get) => ({
     if (!p) return // the active project can't be deleted — switch away first
     set((st) => ({ projectsHub: st.projectsHub.filter((x) => x.id !== id) }))
     get().log('project', 'delete', `Deleted project "${p.name}"`)
+  },
+  // rename any project — the active one or a stashed hub project (name is kept
+  // in sync inside the stashed snapshot so it survives a later switch)
+  renameProjectSpace: (id, name) => {
+    const nm = (name || '').trim()
+    if (!nm) return
+    if (id === get().project.id) {
+      const old = get().project.name
+      get().updateProject({ name: nm })
+      get().log('project', 'rename', `Renamed project "${old}" to "${nm}"`)
+    } else {
+      const p = get().projectsHub.find((x) => x.id === id)
+      if (!p) return
+      set((st) => ({
+        projectsHub: st.projectsHub.map((x) => (x.id === id
+          ? { ...x, name: nm, snapshot: { ...x.snapshot, project: { ...x.snapshot.project, name: nm } } }
+          : x)),
+      }))
+      get().log('project', 'rename', `Renamed project "${p.name}" to "${nm}"`)
+    }
+    get().cacheTerm(nm)
   },
 
   // generic single-diagram import (draw.io / Lucidchart / Mermaid) into the active project

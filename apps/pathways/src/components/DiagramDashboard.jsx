@@ -484,14 +484,28 @@ function ViewMenu() {
           </div>
           <div className="sep" />
           <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path classification colors</div>
-          {['positive', 'negative'].map((k) => (
-            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '3px 11px 6px' }}>
-              <input type="color" style={{ width: 30, height: 24, padding: 1, cursor: 'pointer' }}
-                value={(vs.pathColors || {})[k] || (k === 'positive' ? '#22c55e' : '#ef4444')}
-                onChange={(e) => setVs('pathColors', { ...(vs.pathColors || {}), [k]: e.target.value })} />
-              <span style={{ fontSize: 12.5, textTransform: 'capitalize' }}>{k} paths</span>
-            </div>
-          ))}
+          <button title="Master switch — off renders every path in the default connection color, regardless of classification"
+            onClick={() => setVs('pathClassColors', !(vs.pathClassColors !== false))}>
+            <span style={{ width: 16 }}>{vs.pathClassColors !== false ? '✓' : ''}</span>Color formatting enabled
+          </button>
+          {['positive', 'negative'].map((k) => {
+            const en = (vs.pathClassEnabled || {})[k] !== false
+            const master = vs.pathClassColors !== false
+            return (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '3px 11px 6px', opacity: master ? 1 : 0.45 }}>
+                <label className="toggle" style={{ margin: 0 }}
+                  title={`Uncheck to render ${k} paths in the default connection color`}>
+                  <input type="checkbox" disabled={!master} checked={en}
+                    onChange={(e) => setVs('pathClassEnabled', { ...(vs.pathClassEnabled || {}), [k]: e.target.checked })} />
+                </label>
+                <input type="color" style={{ width: 30, height: 24, padding: 1, cursor: 'pointer', opacity: en ? 1 : 0.4 }}
+                  disabled={!master || !en}
+                  value={(vs.pathColors || {})[k] || (k === 'positive' ? '#22c55e' : '#ef4444')}
+                  onChange={(e) => setVs('pathColors', { ...(vs.pathColors || {}), [k]: e.target.value })} />
+                <span style={{ fontSize: 12.5, textTransform: 'capitalize', opacity: en ? 1 : 0.55 }}>{k} paths</span>
+              </div>
+            )
+          })}
         </div>
       )}
     </span>
@@ -1279,6 +1293,8 @@ function Canvas() {
   const [exporting, setExporting] = useState(false)
   const [maximo, setMaximo] = useState(false)
   const [importHub, setImportHub] = useState(false)
+  const [delDiagram, setDelDiagram] = useState(false)
+  const [renDiagram, setRenDiagram] = useState(null) // string = editing value, null = closed
   const [formatting, setFormatting] = useState(false)
   const [brushConfirm, setBrushConfirm] = useState(null) // { ids, mismatched: [node] }
 
@@ -1382,6 +1398,7 @@ function Canvas() {
   )
   const pathColors = s.viewSettings.pathColors || {}
   const classColors = s.viewSettings.pathClassColors !== false
+  const clsEnabled = s.viewSettings.pathClassEnabled || {}
   const edges = useMemo(
     () => (diagram?.edges || []).map((e) => {
       const base = { ...e, type: 'sep' }
@@ -1398,12 +1415,12 @@ function Canvas() {
       if (covered.has(e.id)) return { ...base, style: { stroke: '#22d3ee', strokeWidth: 2.4 } }
       if (classColors) {
         const cls = e.data?.classification
-        if (cls === 'positive') return { ...base, style: { stroke: pathColors.positive || '#22c55e', strokeWidth: 2.2 } }
-        if (cls === 'negative') return { ...base, style: { stroke: pathColors.negative || '#ef4444', strokeWidth: 2.2 } }
+        if (cls === 'positive' && clsEnabled.positive !== false) return { ...base, style: { stroke: pathColors.positive || '#22c55e', strokeWidth: 2.2 } }
+        if (cls === 'negative' && clsEnabled.negative !== false) return { ...base, style: { stroke: pathColors.negative || '#ef4444', strokeWidth: 2.2 } }
       }
       return base
     }),
-    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors],
+    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled],
   )
 
   const select = useCallback((id) => setSelection({ kind: 'node', id }), [])
@@ -1460,8 +1477,10 @@ function Canvas() {
         </select>
         {canEdit && (<>
           <button className="btn small" onClick={() => s.addDiagram(`Diagram ${s.diagrams.length + 1}`)}>＋ New</button>
-          <input style={{ width: 130 }} placeholder="Rename + Enter"
-            onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value.trim()) { s.renameDiagram(s.activeDiagramId, e.target.value.trim()); e.target.value = '' } }} />
+          <button className="btn small" title="Rename this diagram" disabled={!diagram}
+            onClick={() => setRenDiagram(diagram?.name || '')}>✏ Rename</button>
+          <button className="btn small" title="Delete this diagram from the project (asks for confirmation)"
+            disabled={!diagram} onClick={() => setDelDiagram(true)}>🗑</button>
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
           <UndoRedo />
           <button className="btn small" onClick={() => setFormatting(true)}
@@ -1583,6 +1602,45 @@ function Canvas() {
       {formatting && <FormatModal selectedIds={selectedIds} onClose={() => setFormatting(false)} />}
       {maximo && <MaximoWizard onClose={() => setMaximo(false)} />}
       {importHub && <ImportHub onClose={() => setImportHub(false)} openMaximo={() => setMaximo(true)} />}
+      {renDiagram != null && diagram && (
+        <div className="modal-scrim" onClick={() => setRenDiagram(null)}>
+          <div className="modal" style={{ width: 'min(400px,92vw)' }} onClick={(e) => e.stopPropagation()}>
+            <h2>✏ Rename Diagram</h2>
+            <div className="field"><label>Diagram name</label>
+              <input autoFocus value={renDiagram} list="pw-terms"
+                onChange={(e) => setRenDiagram(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && renDiagram.trim()) { s.renameDiagram(diagram.id, renDiagram.trim()); setRenDiagram(null) }
+                  if (e.key === 'Escape') setRenDiagram(null)
+                }} /></div>
+            <div className="foot">
+              <button className="btn" onClick={() => setRenDiagram(null)}>Cancel</button>
+              <button className="btn primary" disabled={!renDiagram.trim()}
+                onClick={() => { s.renameDiagram(diagram.id, renDiagram.trim()); setRenDiagram(null) }}>✓ Rename</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {delDiagram && diagram && (
+        <div className="modal-scrim" onClick={() => setDelDiagram(false)}>
+          <div className="modal" style={{ width: 'min(440px,92vw)' }} onClick={(e) => e.stopPropagation()}>
+            <h2>🗑 Delete Diagram</h2>
+            <div style={{ fontSize: 13, marginBottom: 8 }}>
+              Delete <b>“{diagram.name}”</b> from this project?
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>
+              It contains <b>{(diagram.nodes || []).length}</b> node{(diagram.nodes || []).length === 1 ? '' : 's'} and <b>{(diagram.edges || []).length}</b> connection path{(diagram.edges || []).length === 1 ? '' : 's'}.
+            </div>
+            <div style={{ fontSize: 11.5, color: '#fbbf24', marginBottom: 4 }}>
+              ⚠ This cannot be undone. Test steps mapped to this diagram’s nodes and bugs pinned to it will lose their diagram links.
+            </div>
+            <div className="foot">
+              <button className="btn" onClick={() => setDelDiagram(false)}>Cancel</button>
+              <button className="btn danger" onClick={() => { s.deleteDiagram(diagram.id); setDelDiagram(false); setSelection(null) }}>🗑 Delete diagram</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
