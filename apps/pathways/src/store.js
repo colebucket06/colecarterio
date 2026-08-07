@@ -1404,6 +1404,15 @@ export const useStore = create((set, get) => ({
     get().log('project', 'delete', `Deleted project "${p.name}"`)
   },
 
+  // generic single-diagram import (draw.io / Lucidchart / Mermaid) into the active project
+  importDiagram: ({ nodes, edges }, name) => {
+    const d = { id: uid('d'), name: name || `Imported diagram ${get().diagrams.length + 1}`, nodes, edges }
+    set((s) => ({ diagrams: [...s.diagrams, d], activeDiagramId: d.id }))
+    get().cacheTerm(name)
+    get().log('diagram', 'import', `Imported diagram "${d.name}" — ${nodes.filter((n) => n.type === 'flow').length} nodes, ${edges.length} connection paths`)
+    return d.id
+  },
+
   // Maximo import: place built diagrams into a new or existing project
   importMaximoDiagrams: (dest, built) => {
     if (dest.type === 'new') {

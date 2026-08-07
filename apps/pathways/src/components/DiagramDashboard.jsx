@@ -4,6 +4,88 @@ import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, merge
 import FlowNode, { SectionNode, StickyNode, iconInk } from './FlowNode'
 import { RunSummaryModal, sevColor } from './Bugs'
 import MaximoWizard from './MaximoWizard'
+import { parseDrawio, parseMermaid } from '../utils/diagramImport'
+
+// ---- general import hub: pick a source format, then the matching importer runs ----
+function ImportHub({ onClose, openMaximo }) {
+  const s = useStore()
+  const fileRef = useRef(null)
+  const projRef = useRef(null)
+  const [mode, setMode] = useState(null) // 'drawio' | 'mermaid'
+  const [mtext, setMtext] = useState('')
+  const [err, setErr] = useState(null)
+  const finish = (parsed, name) => { s.importDiagram(parsed, name); onClose() }
+  const onDiagramFile = async (f) => {
+    if (!f) return
+    setErr(null)
+    try {
+      const text = await f.text()
+      const base = f.name.replace(/\.(drawio|xml|mmd|txt|mermaid)$/i, '')
+      if (mode === 'drawio') finish(parseDrawio(text), base)
+      else finish(parseMermaid(text), base)
+    } catch (e) { setErr(e?.message || String(e)) }
+  }
+  const onProjectFile = async (f) => {
+    if (!f) return
+    setErr(null)
+    try { s.importProject(JSON.parse(await f.text())); onClose() }
+    catch { setErr('Not a valid Pathways project file.') }
+  }
+  const CARDS = [
+    { key: 'maximo', icon: '🏭', title: 'IBM Maximo workflows', desc: 'WFPROCESS / WFNODE / WFACTION (+ WFASSIGNMENT, WFCONDITION, WFSUBPROCESS) exports — workbook, CSVs, or JSON. Full wizard with state/revision selection and subprocess linking.' },
+    { key: 'drawio', icon: '🔷', title: 'draw.io / Lucidchart', desc: 'A .drawio or .xml file — shapes, positions, labels, and colored routes become nodes and connection paths. Round-trips Pathways’ own draw.io exports.' },
+    { key: 'mermaid', icon: '🧜', title: 'Mermaid flowchart', desc: 'A .mmd file or pasted flowchart text — nodes and paths are built and auto-laid out. Round-trips Pathways’ Mermaid exports.' },
+    { key: 'project', icon: '🗂', title: 'Pathways project (.json)', desc: 'A full project file saved from Pathways — restores every project, diagram, suite, and setting.' },
+  ]
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className="modal" style={{ width: 'min(560px,94vw)' }} onClick={(e) => e.stopPropagation()}>
+        <h2>⇪ Import</h2>
+        {!mode && (<>
+          <div style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 10 }}>Choose the source format:</div>
+          {CARDS.map((c) => (
+            <div key={c.key} className="import-card" onClick={() => {
+              if (c.key === 'maximo') { onClose(); openMaximo() }
+              else if (c.key === 'project') projRef.current?.click()
+              else setMode(c.key)
+            }}>
+              <span style={{ fontSize: 22 }}>{c.icon}</span>
+              <div><b style={{ fontSize: 13 }}>{c.title}</b>
+                <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>{c.desc}</div></div>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8 }}>
+            PDF, SVG, PNG, and Visio are export-only formats — they carry rendered output rather than importable diagram data.
+          </div>
+        </>)}
+        {mode && (<>
+          <div style={{ fontSize: 12.5, marginBottom: 8 }}>
+            {mode === 'drawio' ? 'Choose a .drawio / .xml file exported from draw.io, diagrams.net, Lucidchart, or Pathways.' : 'Choose a .mmd file, or paste Mermaid flowchart text below.'}
+          </div>
+          <div className="dropzone" onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); onDiagramFile(e.dataTransfer.files?.[0]) }}>
+            📂 Click to choose a file, or drag it here
+          </div>
+          {mode === 'mermaid' && (<>
+            <textarea rows={6} style={{ width: '100%', marginTop: 8, fontFamily: 'Consolas, monospace', fontSize: 12 }}
+              placeholder={'flowchart LR\n  A([Start]) --> B{Approved?}\n  B -->|yes| C[Fulfil]\n  B -->|no| D([Stop])'}
+              value={mtext} onChange={(e) => setMtext(e.target.value)} />
+            <button className="btn small primary" style={{ marginTop: 6 }} disabled={!mtext.trim()}
+              onClick={() => { try { finish(parseMermaid(mtext), 'Mermaid import') } catch (e) { setErr(e?.message || String(e)) } }}>
+              ⇪ Import pasted text</button>
+          </>)}
+          {err && <div className="field-err" style={{ marginTop: 8 }}>⚠ {err}</div>}
+          <div className="foot"><button className="btn" onClick={() => { setMode(null); setErr(null) }}>← Back</button></div>
+        </>)}
+        <input ref={fileRef} type="file" accept={mode === 'drawio' ? '.drawio,.xml' : '.mmd,.txt,.mermaid'} style={{ display: 'none' }}
+          onChange={(e) => { onDiagramFile(e.target.files?.[0]); e.target.value = '' }} />
+        <input ref={projRef} type="file" accept=".json" style={{ display: 'none' }}
+          onChange={(e) => { onProjectFile(e.target.files?.[0]); e.target.value = '' }} />
+      </div>
+    </div>
+  )
+}
 import AttachmentManager from './AttachmentManager'
 import PlanRunner, { branchPoints } from './PlanRunner'
 import PlanPreview from './PlanPreview'
@@ -1115,6 +1197,7 @@ function Canvas() {
   const [selectedIds, setSelectedIds] = useState([])
   const [exporting, setExporting] = useState(false)
   const [maximo, setMaximo] = useState(false)
+  const [importHub, setImportHub] = useState(false)
   const [formatting, setFormatting] = useState(false)
   const [brushConfirm, setBrushConfirm] = useState(null) // { ids, mismatched: [node] }
 
@@ -1310,8 +1393,8 @@ function Canvas() {
         {canEdit && <HiddenMenu />}
         <button className="btn small" onClick={() => setExporting(true)} title="Export diagram — PDF, Visio, draw.io/Lucidchart, SVG, PNG, Mermaid">⤓ Export</button>
         {canEdit && (
-          <button className="btn small" onClick={() => setMaximo(true)}
-            title="Import workflows from IBM Maximo — WFPROCESS/WFNODE/WFACTION(+WFASSIGNMENT/WFCONDITION/WFSUBPROCESS) exports become diagrams with attribution">⇪ Maximo</button>
+          <button className="btn small" onClick={() => setImportHub(true)}
+            title="Import — IBM Maximo workflow tables, draw.io/Lucidchart XML, Mermaid flowcharts, or a Pathways project file">⇪ Import</button>
         )}
         <label className="toggle"><input type="checkbox" checked={s.showCoverage} onChange={(e) => s.setShowCoverage(e.target.checked)} />
           test coverage</label>
@@ -1415,6 +1498,7 @@ function Canvas() {
       {exporting && diagram && <ExportDialog diagram={diagram} getNodes={getNodes} onClose={() => setExporting(false)} />}
       {formatting && <FormatModal selectedIds={selectedIds} onClose={() => setFormatting(false)} />}
       {maximo && <MaximoWizard onClose={() => setMaximo(false)} />}
+      {importHub && <ImportHub onClose={() => setImportHub(false)} openMaximo={() => setMaximo(true)} />}
     </div>
   )
 }

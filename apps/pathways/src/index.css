@@ -885,3 +885,7 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
   padding: 14px 2px; font-size: 10px; line-height: 1; opacity: .55; border-radius: 7px;
 }
 .col-head button[title*="Collapse this panel"]:hover { opacity: 1; }
+
+/* import hub format cards */
+.import-card { display: flex; gap: 12px; align-items: center; padding: 11px 13px; border: 1px solid var(--border); border-radius: 11px; margin-bottom: 8px; cursor: pointer; transition: all .15s; background: var(--bg-2); }
+.import-card:hover { border-color: var(--accent); box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 30%, transparent); transform: translateY(-1px); }

@@ -142,22 +142,54 @@ export function buildDiagrams(tables, selected, includeSubs = true) {
         },
       }
     })
+    // connection-path attribution differs by the SOURCE node type in Maximo:
+    //  INPUT      → each output is a selectable option: instruction = option text
+    //               (the path label), action = triggered Maximo action, sequence = order
+    //  CONDITION  → true/false routing (ispositive) with optional action name
+    //  TASK       → accept/reject routing (ispositive) with optional action
+    //  others     → action name + instruction as path logic
     const edges = actions
       .filter((a) => idMap[num(a.ownernodeid)] && idMap[num(a.membernodeid)])
       .map((a) => {
         const srcNode = nodes.find((n) => num(n.nodeid) === num(a.ownernodeid))
-        const fromCondition = String(srcNode?.nodetype).toUpperCase() === 'CONDITION'
+        const tgtNode = nodes.find((n) => num(n.nodeid) === num(a.membernodeid))
+        const srcType = String(srcNode?.nodetype).toUpperCase()
         const positive = num(a.ispositive) === 1
+        const action = nv(a.action), instr = nv(a.instruction), cond = nv(a.condition), seq = nv(a.sequence)
+        // designer noise: "Always True/False" markers and instructions that merely
+        // repeat the target node's title carry no real meaning
+        const noise = (t) => !t || /^always (true|false)$/i.test(t)
+          || t === nv(tgtNode?.title) || t === nv(tgtNode?.description)
+        let label = ''
+        const logic = []
+        let classification = positive ? 'default' : 'negative'
+        if (srcType === 'INPUT') {
+          label = instr || action || ''
+          if (action) logic.push(`Action: ${action}`)
+          if (seq != null) logic.push(`Option ${seq}`)
+          if (cond) logic.push(`Condition: ${cond}`)
+        } else if (srcType === 'CONDITION') {
+          label = action || ''
+          classification = positive ? 'positive' : 'negative'
+          logic.push(positive ? 'TRUE route' : 'FALSE route')
+          if (!noise(instr)) logic.push(instr)
+          if (cond) logic.push(`Condition: ${cond}`)
+        } else if (srcType === 'TASK') {
+          label = action || ''
+          classification = positive ? 'positive' : 'negative'
+          logic.push(positive ? 'Accept route' : 'Reject route')
+          if (!noise(instr) && instr !== action) logic.push(instr)
+        } else {
+          label = action || ''
+          if (!noise(instr) && instr !== action) logic.push(instr)
+          if (cond) logic.push(`Condition: ${cond}`)
+        }
         return {
           id: uid('mxe'),
           source: idMap[num(a.ownernodeid)], target: idMap[num(a.membernodeid)],
           sourceHandle: 'sr', targetHandle: 'tl',
-          label: nv(a.action) || '',
-          data: {
-            condition: nv(a.condition) || nv(a.instruction) || '',
-            // color routing paths leaving decisions: green = positive line, red = negative
-            classification: fromCondition ? (positive ? 'positive' : 'negative') : (positive ? 'default' : 'negative'),
-          },
+          label,
+          data: { condition: logic.join(' · '), classification },
         }
       })
     out.push({
