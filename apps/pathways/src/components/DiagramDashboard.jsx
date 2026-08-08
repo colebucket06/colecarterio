@@ -376,9 +376,9 @@ function ArrangeToolbar({ selectedIds }) {
   const toggle = (m) => setOpen(open === m ? null : m)
   return (
     <>
-      <button className="btn small" onClick={() => s.autoLayout()} title="Automatic layered layout (dagre)">✨ Auto layout</button>
+      <button className="btn small" onClick={() => s.autoLayout()} title="Automatic layered layout (dagre)">✨<span className="tb-label"> Auto layout</span></button>
       <span className="menu-wrap">
-        <button className="btn small" onClick={() => toggle('align')} disabled={n < 2} title="Align selected nodes">⊞ Align ▾</button>
+        <button className="btn small" onClick={() => toggle('align')} disabled={n < 2} title="Align selected nodes">⊞<span className="tb-label"> Align</span> ▾</button>
         {open === 'align' && (
           <div className="dropdown" onMouseLeave={() => setOpen(null)}>
             <button onClick={() => { s.alignNodes(selectedIds, 'left'); setOpen(null) }}>⊢ Align left</button>
@@ -392,7 +392,7 @@ function ArrangeToolbar({ selectedIds }) {
         )}
       </span>
       <span className="menu-wrap">
-        <button className="btn small" onClick={() => toggle('dist')} disabled={n < 2} title="Distribute / cascade">⇹ Arrange ▾</button>
+        <button className="btn small" onClick={() => toggle('dist')} disabled={n < 2} title="Distribute / cascade">⇹<span className="tb-label"> Arrange</span> ▾</button>
         {open === 'dist' && (
           <div className="dropdown" onMouseLeave={() => setOpen(null)}>
             <button disabled={n < 3} onClick={() => { s.distributeNodes(selectedIds, 'h'); setOpen(null) }}>↔ Distribute horizontally</button>
@@ -431,7 +431,7 @@ function ViewMenu() {
   const setScale = (v) => setVs('fontScale', Math.round(Math.min(1.6, Math.max(0.8, v)) * 10) / 10)
   return (
     <span className="menu-wrap">
-      <button className="btn small" onClick={() => setOpen(!open)} title="Adjust what nodes display and how large">👁 View ▾</button>
+      <button className="btn small" onClick={() => setOpen(!open)} title="Adjust what nodes display and how large">👁<span className="tb-label"> View</span> ▾</button>
       {open && (
         <div className="dropdown" style={{ minWidth: 250 }} onMouseLeave={() => setOpen(false)}>
           <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace layout</div>
@@ -544,9 +544,9 @@ function UndoRedo() {
   const redo = useStore((s) => s.redo)
   return (<>
     <button className="btn small" disabled={!past.length} onClick={undo}
-      title={past.length ? `Undo: ${past[past.length - 1].label} (Ctrl+Z)` : 'Nothing to undo'}>↩ Undo</button>
+      title={past.length ? `Undo: ${past[past.length - 1].label} (Ctrl+Z)` : 'Nothing to undo'}>↩<span className="tb-label"> Undo</span></button>
     <button className="btn small" disabled={!future.length} onClick={redo}
-      title={future.length ? `Redo: ${future[0].label} (Ctrl+Y)` : 'Nothing to redo'}>↪ Redo</button>
+      title={future.length ? `Redo: ${future[0].label} (Ctrl+Y)` : 'Nothing to redo'}>↪<span className="tb-label"> Redo</span></button>
   </>)
 }
 
@@ -793,8 +793,8 @@ function PathStyleToggle() {
   const style = diagram?.pathStyle || 'auto'
   return (
     <span className="seg" title="Connection path routing — Auto: curved, fully automatic. Squared: right-angled lines; double-click a connection to add path points, drag to move, right-click a point to remove.">
-      <button className={style === 'auto' ? 'on accent' : ''} onClick={() => s.setPathStyle('auto')}>⤳ Auto</button>
-      <button className={style === 'squared' ? 'on accent' : ''} onClick={() => s.setPathStyle('squared')}>⊐ Squared</button>
+      <button className={style === 'auto' ? 'on accent' : ''} onClick={() => s.setPathStyle('auto')}>⤳<span className="tb-label"> Auto</span></button>
+      <button className={style === 'squared' ? 'on accent' : ''} onClick={() => s.setPathStyle('squared')}>⊐<span className="tb-label"> Squared</span></button>
     </span>
   )
 }
@@ -810,7 +810,7 @@ function FilterMenu({ matchCount, totalCount }) {
     <span className="menu-wrap">
       <button className={'btn small' + (active ? ' primary' : '')} onClick={() => setOpen(!open)}
         title="Filter elements by type or text — non-matching elements fade to ghost outlines">
-        ⧩ Filter{active ? ` (${matchCount}/${totalCount})` : ''} ▾
+        ⧩<span className="tb-label"> Filter</span>{active ? ` (${matchCount}/${totalCount})` : ''} ▾
       </button>
       {open && (
         <div className="dropdown" style={{ minWidth: 240 }} onMouseLeave={() => setOpen(false)}>
@@ -863,7 +863,7 @@ function HiddenMenu() {
     <span className="menu-wrap">
       <button className={'btn small' + (hidden.length ? ' warn' : '')} onClick={() => setOpen(!open)}
         title="Review hidden elements — each remains as a transparent ghost outline at its original location">
-        🙈 Hidden ({hidden.length}) ▾
+        🙈<span className="tb-label"> Hidden</span> ({hidden.length}) ▾
       </button>
       {open && (
         <div className="dropdown" style={{ minWidth: 265 }} onMouseLeave={() => setOpen(false)}>
@@ -1539,15 +1539,15 @@ function Canvas() {
           ))}
         </select>
         {canEdit && (<>
-          <button className="btn small" onClick={() => s.addDiagram(`Diagram ${s.diagrams.length + 1}`)}>＋ New</button>
+          <button className="btn small" onClick={() => s.addDiagram(`Diagram ${s.diagrams.length + 1}`)}>＋<span className="tb-label"> New</span></button>
           <button className="btn small" title="Rename this diagram" disabled={!diagram}
-            onClick={() => setRenDiagram(diagram?.name || '')}>✏ Rename</button>
+            onClick={() => setRenDiagram(diagram?.name || '')}>✏<span className="tb-label"> Rename</span></button>
           <button className="btn small" title="Delete this diagram from the project (asks for confirmation)"
             disabled={!diagram} onClick={() => setDelDiagram(true)}>🗑</button>
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
           <UndoRedo />
           <button className="btn small" onClick={() => setFormatting(true)}
-            title="Global formatting — style all elements of a node type, or the selected group">🎨 Format</button>
+            title="Global formatting — style all elements of a node type, or the selected group">🎨<span className="tb-label"> Format</span></button>
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
           <ArrangeToolbar selectedIds={selectedIds} />
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
@@ -1557,17 +1557,17 @@ function Canvas() {
         {canEdit && <PathStyleToggle />}
         <FilterMenu matchCount={matchCount} totalCount={(diagram?.nodes || []).length} />
         {canEdit && <HiddenMenu />}
-        <button className="btn small" onClick={() => setExporting(true)} title="Export diagram — PDF, Visio, draw.io/Lucidchart, SVG, PNG, Mermaid">⤓ Export</button>
+        <button className="btn small" onClick={() => setExporting(true)} title="Export diagram — PDF, Visio, draw.io/Lucidchart, SVG, PNG, Mermaid">⤓<span className="tb-label"> Export</span></button>
         {canEdit && (
           <button className="btn small" onClick={() => setImportHub(true)}
-            title="Import — IBM Maximo workflow tables, draw.io/Lucidchart XML, Mermaid flowcharts, or a Pathways project file">⇪ Import</button>
+            title="Import — IBM Maximo workflow tables, draw.io/Lucidchart XML, Mermaid flowcharts, or a Pathways project file">⇪<span className="tb-label"> Import</span></button>
         )}
-        <label className="toggle"><input type="checkbox" checked={s.showCoverage} onChange={(e) => s.setShowCoverage(e.target.checked)} />
-          test coverage</label>
+        <label className="toggle" title="Highlight elements covered by linked test cases"><input type="checkbox" checked={s.showCoverage} onChange={(e) => s.setShowCoverage(e.target.checked)} />
+          🧪<span className="tb-label"> test coverage</span></label>
         {canEdit && diagram && (
           <label className="toggle" title="Share this workflow with the community — unshared workflows are hidden from viewers and community members">
             <input type="checkbox" checked={diagram.shared !== false} onChange={(e) => s.setDiagramShared(diagram.id, e.target.checked)} />
-            🌐 shared</label>
+            🌐<span className="tb-label"> shared</span></label>
         )}
       </div>
       <ReactFlow

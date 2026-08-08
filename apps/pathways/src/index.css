@@ -861,12 +861,16 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
 
 /* compact toolbar: icon-only buttons that animate open to reveal their text on
    hover / focus / press-hold (touch) */
-.canvas-toolbar.compact .btn.small {
-  max-width: 37px; overflow: hidden; white-space: nowrap; text-overflow: clip;
-}
-.canvas-toolbar.compact input[placeholder="Rename + Enter"] { display: none; }
+/* compact toolbar: labels are real elements and simply disappear — buttons become
+   pure informative icons (counts and menu arrows stay visible) */
+.canvas-toolbar.compact .tb-label { display: none; }
 .canvas-toolbar.compact select { max-width: 118px; }
-.canvas-toolbar.compact label.toggle { max-width: 36px; overflow: hidden; white-space: nowrap; }
+.canvas-toolbar.compact .btn.small, .canvas-toolbar.compact .seg button { white-space: nowrap; }
+/* palette-style hover feedback on the icon buttons */
+.canvas-toolbar.compact .btn.small:hover:not(:disabled), .canvas-toolbar.compact label.toggle:hover, .canvas-toolbar.compact .seg button:hover {
+  border-color: var(--accent); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 45%, transparent);
+  transform: translateY(-1px); transition: transform .12s ease, box-shadow .12s ease;
+}
 /* compact hover: a fly-under label names the action (like the palette rail) */
 .tb-tip {
   position: fixed; transform: translateX(-50%); z-index: 96; pointer-events: none;
