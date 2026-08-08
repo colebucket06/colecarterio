@@ -83,7 +83,7 @@ export default function FlowNode({ id, data, selected }) {
   // text formatting: per-node wins over the type's global text formatting
   const textFmt = data.textFmt || typeFmt?.textFmt || null
   const sized = !!(width || height)
-  const cls = ['fnode', 'fshape-' + shape, fmt ? 'custom' : '', sized ? 'sized' : '', selected ? 'selected' : '', data.__covered ? 'covered' : '', data.__run ? 'runhl' : '', data.__step ? 'stephl' : '', data.__preview ? 'previewhl' : '', data.__branch ? 'branchhl' : '', data.__ghost ? 'ghost' : '', data.__pathIssue ? 'pathissue' : '', !fmt && isLight(baseColor) ? 'light' : ''].join(' ')
+  const cls = ['fnode', 'fshape-' + shape, fmt ? 'custom' : '', sized ? 'sized' : '', selected ? 'selected' : '', data.__covered ? 'covered' : '', data.__run ? 'runhl' : '', data.__step ? 'stephl' : '', data.__preview ? 'previewhl' : '', data.__branch ? 'branchhl' : '', data.__ghost ? 'ghost' : '', data.__pathIssue ? 'pathissue' : '', data.__grouphl ? 'grouphl' : '', !fmt && isLight(baseColor) ? 'light' : ''].join(' ')
   const hasAtt = (data.attachments || []).length > 0
   const styleVars = { '--node-color': baseColor, fontSize: `${(textFmt?.size || 12.5) * (vs.fontScale || 1)}px` }
   if (width) styleVars.width = '100%'

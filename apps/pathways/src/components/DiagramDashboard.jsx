@@ -443,6 +443,63 @@ function BrushConfirmModal({ confirm, onApply, onCancel }) {
   )
 }
 
+
+// ---- group properties panel: right side, stacks left of other open side bars ----
+function GroupPanel({ group, diagram, stacked, focused, selectedIds, onFocus, onClose }) {
+  const s = useStore()
+  const members = group.memberIds.map((id) => diagram.nodes.find((n) => n.id === id)).filter(Boolean)
+  const mset = new Set(group.memberIds)
+  const paths = diagram.edges.filter((e) => mset.has(e.source) && mset.has(e.target))
+  const nodeName = (id) => diagram.nodes.find((n) => n.id === id)?.data.label || '?'
+  const addable = selectedIds.filter((id) => !mset.has(id) && diagram.nodes.some((n) => n.id === id && n.type === 'flow'))
+  return (
+    <aside className="props-panel group-panel" style={stacked ? { right: 303 } : undefined}>
+      <h3>⛶ Group Properties
+        <button className="btn small" style={{ marginLeft: 'auto' }} onClick={onClose}>✕</button></h3>
+      <div className="field"><label>Group Name</label>
+        <input value={group.name} onChange={(e) => s.updateGroup(group.id, { name: e.target.value })} /></div>
+      <div className="field"><label>Description</label>
+        <textarea rows={2} value={group.description || ''} onChange={(e) => s.updateGroup(group.id, { description: e.target.value })} /></div>
+      <div className="field"><label>Group Formatting</label>
+        <ColorCore color={group.color || '#8b5cf6'} onChange={(c) => s.updateGroup(group.id, { color: c })} />
+        <button className="btn small" style={{ marginTop: 6 }}
+          title="Apply the group color to every member node"
+          onClick={() => s.setNodeColor(group.memberIds, group.color || '#8b5cf6')}>🎨 Apply Color to Members</button></div>
+      <div className="field"><label>Layering</label>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          <button className="btn small" title="Bring to Front" onClick={() => s.reorderNodes(group.memberIds, 'front')}>⏫ Front</button>
+          <button className="btn small" title="Bring Forward" onClick={() => s.reorderNodes(group.memberIds, 'forward')}>🔼 Forward</button>
+          <button className="btn small" title="Send Backward" onClick={() => s.reorderNodes(group.memberIds, 'backward')}>🔽 Backward</button>
+          <button className="btn small" title="Send to Back" onClick={() => s.reorderNodes(group.memberIds, 'back')}>⏬ Back</button>
+        </div></div>
+      <div className="field"><label>Node Elements ({members.length})</label>
+        {members.map((n) => (
+          <div className="link-row" key={n.id}>
+            <span style={{ flex: 1, fontSize: 12 }}>{n.data.label}</span>
+            <button className="btn small" title="Remove from group" onClick={() => s.removeFromGroup(group.id, [n.id])}>✕</button>
+          </div>
+        ))}
+        {addable.length > 0 && (
+          <button className="btn small primary" style={{ marginTop: 4 }}
+            onClick={() => s.addToGroup(group.id, addable)}>＋ Add Current Selection ({addable.length})</button>
+        )}</div>
+      <div className="field"><label>Paths ({paths.length})</label>
+        {paths.slice(0, 8).map((e) => <div className="link-row" key={e.id} style={{ fontSize: 11.5 }}>{nodeName(e.source)} → {nodeName(e.target)}{e.label ? ` · "${e.label}"` : ''}</div>)}
+        {paths.length === 0 && <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>No paths between members yet.</div>}
+        <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 3 }}>Paths join automatically when both endpoints are members.</div></div>
+      <div className="field"><label>Identifying Section</label>
+        {group.sectionId
+          ? <button className="btn small" onClick={() => s.removeGroupSection(group.id)}>✕ Remove Section Backdrop</button>
+          : <button className="btn small" onClick={() => s.addGroupSection(group.id)}>▭ Add Section Backdrop</button>}</div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+        <button className="btn small primary" onClick={onFocus}>{focused ? '⛶ Exit Focus' : '⛶ Focus Group'}</button>
+        <button className="btn small danger" title="Dissolve the group — members and any section backdrop remain"
+          onClick={() => { s.ungroup(group.id); onClose() }}>⧉ Ungroup</button>
+      </div>
+    </aside>
+  )
+}
+
 function ContextMenu({ menu, close, openFormat }) {
   const s = useStore()
   const { screenToFlowPosition } = useReactFlow()
@@ -469,7 +526,18 @@ function ContextMenu({ menu, close, openFormat }) {
         <div className="sep" />
         <button onClick={() => { s.copyNodes(menu.ids); close() }}>⿻ Copy selection</button>
         <button onClick={() => { s.copyNodes(menu.ids); s.pasteNodes(); close() }}>⧉ Duplicate selection</button>
+        {(() => {
+          const g = (menu.groups || []).find((x) => menu.ids.every((id) => x.memberIds.includes(id)))
+          return g
+            ? <button onClick={() => { s.ungroup(g.id); close() }}>⧉ Ungroup "{g.name}"</button>
+            : <button onClick={() => { menu.groupPrompt(menu.ids.filter((id) => !(menu.groups || []).some((x) => x.memberIds.includes(id))).length ? menu.ids : menu.ids); close() }}>⧉ Group Selection ({menu.ids.length})…</button>
+        })()}
         <button onClick={() => { s.groupIntoSection(menu.ids); close() }}>▭ Group into section</button>
+        <div className="sep" />
+        <button onClick={() => { s.reorderNodes(menu.ids, 'front'); close() }}>⏫ Bring to Front</button>
+        <button onClick={() => { s.reorderNodes(menu.ids, 'forward'); close() }}>🔼 Bring Forward</button>
+        <button onClick={() => { s.reorderNodes(menu.ids, 'backward'); close() }}>🔽 Send Backward</button>
+        <button onClick={() => { s.reorderNodes(menu.ids, 'back'); close() }}>⏬ Send to Back</button>
         <button onClick={() => { s.hideElements(menu.ids); close() }}>🙈 Hide selection (ghost)</button>
         <div className="sep" />
         <button onClick={() => { openFormat(); close() }}>🎨 Format selection…</button>
@@ -492,6 +560,18 @@ function ContextMenu({ menu, close, openFormat }) {
         {!menu.isSection && <button onClick={() => { useStore.setState({ linkDialog: { elementId: menu.id, tab: 'browse' } }); close() }}>🔗 Link to Test Case / Step…</button>}
         <button onClick={() => { isHidden ? s.unhideElements([menu.id]) : s.hideElements([menu.id]); close() }}>
           {isHidden ? '👁 Unhide' : '🙈 Hide (ghost outline)'}</button>
+        <div className="sep" />
+        {(() => {
+          const g = (menu.groups || []).find((x) => x.memberIds.includes(menu.id))
+          return g ? (<>
+            <button onClick={() => { menu.focusGroup(g.id); close() }}>⛶ Focus Group "{g.name}"</button>
+            <button onClick={() => { s.removeFromGroup(g.id, [menu.id]); close() }}>⧉ Remove from "{g.name}"</button>
+          </>) : null
+        })()}
+        <button onClick={() => { s.reorderNodes([menu.id], 'front'); close() }}>⏫ Bring to Front</button>
+        <button onClick={() => { s.reorderNodes([menu.id], 'forward'); close() }}>🔼 Bring Forward</button>
+        <button onClick={() => { s.reorderNodes([menu.id], 'backward'); close() }}>🔽 Send Backward</button>
+        <button onClick={() => { s.reorderNodes([menu.id], 'back'); close() }}>⏬ Send to Back</button>
         <div className="sep" />
         <button onClick={() => { s.armBrush(menu.id); close() }}>🖌 Copy formatting (paintbrush)</button>
         {s.brush && s.brush.sourceId !== menu.id && (
@@ -1626,6 +1706,20 @@ function Canvas() {
     ]
     : (suggest?.items || [])
   const [renDiagram, setRenDiagram] = useState(null) // string = editing value, null = closed
+  const [groupFocus, setGroupFocus] = useState(null)   // groupId — ghost everything else
+  const [groupPrompt, setGroupPrompt] = useState(null) // { ids } — propose identifying section
+  const groups = diagram?.groups || []
+  useEffect(() => { setGroupFocus(null) }, [s.activeDiagramId])
+  // groups touched by the current selection (drives highlight + the group panel)
+  const selIdSet = useMemo(() => {
+    const set = new Set(selectedIds)
+    if (selection?.kind === 'node') set.add(selection.id)
+    return set
+  }, [selectedIds, selection])
+  const activeGroup = useMemo(() => (groupFocus
+    ? groups.find((g) => g.id === groupFocus)
+    : groups.find((g) => g.memberIds.some((m) => selIdSet.has(m)))) || null,
+    [groups, groupFocus, selIdSet])
   const [formatting, setFormatting] = useState(false)
   const [brushConfirm, setBrushConfirm] = useState(null) // { ids, mismatched: [node] }
 
@@ -1706,8 +1800,16 @@ function Canvas() {
       if (filter.types.length && !filter.types.includes(n.data.nodeType)) { set.add(n.id); return }
       if (t && !`${n.data.label} ${n.data.description || ''} #${n.data.sequence || ''}`.toLowerCase().includes(t)) set.add(n.id)
     })
+    // group focus: everything outside the focused group ghosts (its linked
+    // identifying section stays visible)
+    if (groupFocus) {
+      const g = (diagram?.groups || []).find((x) => x.id === groupFocus)
+      if (g) (diagram?.nodes || []).forEach((n) => {
+        if (!g.memberIds.includes(n.id) && n.id !== g.sectionId) set.add(n.id)
+      })
+    }
     return set
-  }, [diagram, hiddenSet, filterActive, filter])
+  }, [diagram, hiddenSet, filterActive, filter, groupFocus])
   const matchCount = (diagram?.nodes || []).length - ghostNodeIds.size
 
   const showComments = s.viewSettings.showComments !== false
@@ -1745,6 +1847,7 @@ function Canvas() {
           const m = missingPaths[n.id]
           extra.__pathIssue = m.missIn && m.missOut ? 'input & output paths' : m.missIn ? 'an input path' : 'an output path'
         }
+        if (activeGroup && activeGroup.memberIds.includes(n.id) && !groupFocus) extra.__grouphl = true
         if (s.viewSettings.showIndicators !== false && n.type === 'flow') {
           const ind = indicatorsFor(n.data.attachments,
             casesLinkedTo(s.cases, s.activeDiagramId, n.id), stepsLinkedTo(s.cases, n.id))
@@ -1752,7 +1855,7 @@ function Canvas() {
         }
         return Object.keys(extra).length ? { ...n, data: { ...n.data, ...extra } } : n
       }),
-    [diagram, covered, runIds, stepIds, previewIds, branchNodeIds, ghostNodeIds, bugsByNode, showComments, ps.flags, missingPaths, s.cases, s.activeDiagramId, s.viewSettings.showIndicators],
+    [diagram, covered, runIds, stepIds, previewIds, branchNodeIds, ghostNodeIds, bugsByNode, showComments, ps.flags, missingPaths, s.cases, s.activeDiagramId, s.viewSettings.showIndicators, activeGroup, groupFocus],
   )
   const pathColors = s.viewSettings.pathColors || {}
   const classColors = s.viewSettings.pathClassColors !== false
@@ -1784,7 +1887,10 @@ function Canvas() {
         if (cls === 'negative' && clsEnabled.negative !== false) return { ...base, style: { stroke: pathColors.negative || '#ef4444', strokeWidth: 2.2 } }
       }
       return base
-    }).concat(sugItems
+    }).map((e) => (activeGroup && !groupFocus
+      && activeGroup.memberIds.includes(e.source) && activeGroup.memberIds.includes(e.target)
+      ? { ...e, className: ((e.className || '') + ' group-edge-hl').trim() } : e))
+      .concat(sugItems
       .filter((_, i) => suggest?.mode !== 'auto' || suggest.checked.has(i))
       .map((it, i) => ({
         id: 'sug-' + i, source: it.source, target: it.target,
@@ -1792,7 +1898,7 @@ function Canvas() {
         style: { stroke: 'var(--accent-2)', strokeWidth: 2.6, strokeDasharray: '7 6' },
         animated: true, label: '', data: { classification: 'default' }, selectable: false,
       }))),
-    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled, suggest, sugItems, s.filter.pathCls], // eslint-disable-line
+    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled, suggest, sugItems, s.filter.pathCls, activeGroup, groupFocus], // eslint-disable-line
   )
 
   const select = useCallback((id) => setSelection({ kind: 'node', id }), [])
@@ -1946,7 +2052,7 @@ function Canvas() {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selectedIds.length) s.copyNodes(selectedIds)
       if ((e.ctrlKey || e.metaKey) && e.key === 'v') s.pasteNodes()
-      if (e.key === 'Escape' && useStore.getState().brush) useStore.getState().clearBrush()
+      if (e.key === 'Escape') { if (useStore.getState().brush) useStore.getState().clearBrush(); setGroupFocus(null) }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); s.undo() }
       if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); s.redo() }
     }
@@ -2036,7 +2142,8 @@ function Canvas() {
         selectionOnDrag panOnDrag={[1, 2]} selectionMode="partial" multiSelectionKeyCode={['Shift', 'Control', 'Meta']} zoomOnScroll
         connectionMode="loose"
         onSelectionChange={onSelectionChange}
-        onSelectionContextMenu={(e, sel) => { e.preventDefault(); setTip(null); setMenu({ type: 'multi', ids: sel.map((n) => n.id), x: e.clientX, y: e.clientY, tryBrush }) }}
+        onSelectionContextMenu={(e, sel) => { e.preventDefault(); setTip(null); setMenu({ type: 'multi', ids: sel.map((n) => n.id), x: e.clientX, y: e.clientY, tryBrush,
+          groups, groupPrompt: (ids) => setGroupPrompt({ ids }), focusGroup: setGroupFocus }) }}
         onNodeMouseEnter={(e, n) => !menu && n.type !== 'sticky' && setTip({ x: e.clientX, y: e.clientY, node: n, linked: linkedCount(n.id) })}
         onNodeMouseMove={(e, n) => !menu && n.type !== 'sticky' && setTip({ x: e.clientX, y: e.clientY, node: n, linked: linkedCount(n.id) })}
         onNodeMouseLeave={() => setTip(null)}
@@ -2045,8 +2152,10 @@ function Canvas() {
         onNodeContextMenu={(e, n) => {
           e.preventDefault(); setTip(null)
           if (!canEdit) return
-          if (selectedIds.length > 1 && selectedIds.includes(n.id)) setMenu({ type: 'multi', ids: selectedIds, x: e.clientX, y: e.clientY, tryBrush })
-          else setMenu({ type: 'node', id: n.id, isSection: n.type === 'section' || n.type === 'sticky' || n.type === 'lane', x: e.clientX, y: e.clientY, select, tryBrush })
+          if (selectedIds.length > 1 && selectedIds.includes(n.id)) setMenu({ type: 'multi', ids: selectedIds, x: e.clientX, y: e.clientY, tryBrush,
+            groups, groupPrompt: (ids) => setGroupPrompt({ ids }), focusGroup: setGroupFocus })
+          else setMenu({ type: 'node', id: n.id, isSection: n.type === 'section' || n.type === 'sticky' || n.type === 'lane', x: e.clientX, y: e.clientY, select, tryBrush,
+            groups, groupPrompt: (ids) => setGroupPrompt({ ids }), focusGroup: setGroupFocus })
         }}
         onEdgeContextMenu={(e, ed) => {
           if (!canEdit) { e.preventDefault(); return }
@@ -2083,6 +2192,10 @@ function Canvas() {
           setSelection({ kind: 'edge', id: ed.id })
         }}
         onPaneClick={() => { setSelection(null); setMenu(null); if (s.brush) s.clearBrush() }}
+        onNodeDoubleClick={(e, n) => {
+          const g = groups.find((x) => x.memberIds.includes(n.id))
+          if (g) setGroupFocus(g.id)
+        }}
         onNodeDragStop={(e, n) => s.log('diagram', 'move', `Moved "${n.data.label}"`, n.id)}
         deleteKeyCode={canEdit ? ['Delete', 'Backspace'] : null} fitView proOptions={{ hideAttribution: true }}
         elevateNodesOnSelect={false} minZoom={0.08}
@@ -2108,6 +2221,42 @@ function Canvas() {
           onClick={() => s.endStepMapping()} title="Click when finished mapping">
           🎯 Mapping test step to the diagram — click nodes / connections to toggle ({stepIds.size} selected) · click here when done ✓
         </div>
+      )}
+      {groupFocus && (() => {
+        const g = groups.find((x) => x.id === groupFocus)
+        if (!g) return null
+        return (
+          <div className="brush-banner suggest-banner" style={{ cursor: 'pointer' }}
+            title="Group focus — everything else is ghosted; select members individually or together to edit or sub-group. Click (or press Esc) to exit."
+            onClick={() => setGroupFocus(null)}>
+            ⛶ Group Focus: {g.name} — editing members only · click here or press Esc to exit ✕
+          </div>
+        )
+      })()}
+      {groupPrompt && (
+        <div className="modal-scrim" onClick={() => setGroupPrompt(null)}>
+          <div className="modal" style={{ width: 'min(430px,92vw)' }} onClick={(e) => e.stopPropagation()}>
+            <h2>⧉ Create Group</h2>
+            <div style={{ fontSize: 12.5, marginBottom: 8 }}>
+              Group <b>{groupPrompt.ids.length}</b> selected elements. Add a section backdrop to identify and distinguish the group on the canvas?
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 10 }}>
+              Without a backdrop, the whole group still highlights when any member is selected, and double-clicking a member focuses the group (everything else ghosts).
+            </div>
+            <div className="foot">
+              <button className="btn" onClick={() => setGroupPrompt(null)}>Cancel</button>
+              <button className="btn" onClick={() => { s.createGroup(groupPrompt.ids, false); setGroupPrompt(null) }}>⧉ Group Only</button>
+              <button className="btn primary" onClick={() => { s.createGroup(groupPrompt.ids, true); setGroupPrompt(null) }}>▭ Group + Section</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {activeGroup && canEdit && (
+        <GroupPanel group={activeGroup} diagram={diagram} focused={!!groupFocus}
+          stacked={!!(run || preview || (selection && canEdit))}
+          selectedIds={[...selIdSet]}
+          onFocus={() => setGroupFocus(groupFocus ? null : activeGroup.id)}
+          onClose={() => { setGroupFocus(null); setSelection(null); setSelectedIds([]) }} />
       )}
       {suggest && suggest.mode === 'drop' && (() => {
         const flowNodes = (diagram?.nodes || []).filter((n) => n.type === 'flow' && n.id !== suggest.nodeId)

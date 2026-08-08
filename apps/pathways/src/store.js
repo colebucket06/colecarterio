@@ -790,6 +790,112 @@ export const useStore = create((set, get) => ({
     get().log('diagram', 'edit-edge', `Connected ${items.length} suggested path${items.length === 1 ? '' : 's'}${replaceEdgeId ? ' (spliced into an existing path)' : ''}`)
   },
 
+  // ---- element groups: named collections of nodes (+ the paths between them).
+  // Optionally identified by a linked section backdrop; selecting any member
+  // highlights the whole group, double-click enters group focus mode ----
+  createGroup: (ids, withSection) => {
+    const d = get().activeDiagram()
+    if (!d) return null
+    const memberIds = ids.filter((id) => d.nodes.some((n) => n.id === id && n.type === 'flow'))
+    if (memberIds.length < 2) return null
+    get().pushHistory('Group elements')
+    const gid = uid('grp')
+    const name = `Group ${(d.groups || []).length + 1}`
+    let sectionId = null
+    get().updateActive((dd) => {
+      let nodes = dd.nodes
+      if (withSection) {
+        const ms = dd.nodes.filter((n) => memberIds.includes(n.id))
+        const minX = Math.min(...ms.map((n) => n.position.x)) - 30
+        const minY = Math.min(...ms.map((n) => n.position.y)) - 46
+        const maxX = Math.max(...ms.map((n) => n.position.x + (n.width || 190))) + 30
+        const maxY = Math.max(...ms.map((n) => n.position.y + (n.height || 64))) + 24
+        sectionId = uid('sec')
+        nodes = [...nodes, { id: sectionId, type: 'section', position: { x: minX, y: minY }, zIndex: -10,
+          style: { width: maxX - minX, height: maxY - minY },
+          data: { nodeType: 'section', label: name, description: 'Group backdrop', color: '#8b5cf6', opacity: 0.12, attrs: [], attachments: [] } }]
+      }
+      return { ...dd, nodes, groups: [...(dd.groups || []), { id: gid, name, description: '', color: '#8b5cf6', memberIds, sectionId }] }
+    })
+    get().log('diagram', 'edit', `Grouped ${memberIds.length} elements into "${name}"${withSection ? ' with an identifying section' : ''}`)
+    return gid
+  },
+  updateGroup: (groupId, patch) => {
+    get().updateActive((d) => {
+      const g = (d.groups || []).find((x) => x.id === groupId)
+      let nodes = d.nodes
+      if (g?.sectionId && (patch.name || patch.color)) {
+        nodes = nodes.map((n) => (n.id === g.sectionId
+          ? { ...n, data: { ...n.data, ...(patch.name ? { label: patch.name } : {}), ...(patch.color ? { color: patch.color } : {}) } }
+          : n))
+      }
+      return { ...d, nodes, groups: (d.groups || []).map((x) => (x.id === groupId ? { ...x, ...patch } : x)) }
+    })
+  },
+  ungroup: (groupId) => {
+    get().pushHistory('Ungroup elements')
+    const g = get().activeDiagram()?.groups?.find((x) => x.id === groupId)
+    get().updateActive((d) => ({ ...d, groups: (d.groups || []).filter((x) => x.id !== groupId) }))
+    get().log('diagram', 'edit', `Ungrouped "${g?.name}" (its section backdrop, if any, remains as a normal section)`)
+  },
+  addToGroup: (groupId, ids) => get().updateActive((d) => ({
+    ...d,
+    groups: (d.groups || []).map((g) => (g.id === groupId
+      ? { ...g, memberIds: [...new Set([...g.memberIds, ...ids.filter((id) => d.nodes.some((n) => n.id === id && n.type === 'flow'))])] }
+      : g)),
+  })),
+  removeFromGroup: (groupId, ids) => get().updateActive((d) => ({
+    ...d,
+    groups: (d.groups || []).map((g) => (g.id === groupId ? { ...g, memberIds: g.memberIds.filter((m) => !ids.includes(m)) } : g)),
+  })),
+  addGroupSection: (groupId) => {
+    const d = get().activeDiagram()
+    const g = d?.groups?.find((x) => x.id === groupId)
+    if (!g || g.sectionId) return
+    get().pushHistory('Add group section')
+    const ms = d.nodes.filter((n) => g.memberIds.includes(n.id))
+    if (!ms.length) return
+    const minX = Math.min(...ms.map((n) => n.position.x)) - 30
+    const minY = Math.min(...ms.map((n) => n.position.y)) - 46
+    const maxX = Math.max(...ms.map((n) => n.position.x + (n.width || 190))) + 30
+    const maxY = Math.max(...ms.map((n) => n.position.y + (n.height || 64))) + 24
+    const sectionId = uid('sec')
+    get().updateActive((dd) => ({
+      ...dd,
+      nodes: [...dd.nodes, { id: sectionId, type: 'section', position: { x: minX, y: minY }, zIndex: -10,
+        style: { width: maxX - minX, height: maxY - minY },
+        data: { nodeType: 'section', label: g.name, description: 'Group backdrop', color: g.color || '#8b5cf6', opacity: 0.12, attrs: [], attachments: [] } }],
+      groups: (dd.groups || []).map((x) => (x.id === groupId ? { ...x, sectionId } : x)),
+    }))
+  },
+  removeGroupSection: (groupId) => {
+    const g = get().activeDiagram()?.groups?.find((x) => x.id === groupId)
+    if (!g?.sectionId) return
+    get().pushHistory('Remove group section')
+    get().updateActive((d) => ({
+      ...d,
+      nodes: d.nodes.filter((n) => n.id !== g.sectionId),
+      groups: (d.groups || []).map((x) => (x.id === groupId ? { ...x, sectionId: null } : x)),
+    }))
+  },
+
+  // ---- layering: bring forward / send backward / bring to front / send to back ----
+  reorderNodes: (ids, op) => {
+    get().pushHistory('Adjust layering')
+    get().updateActive((d) => {
+      const zs = d.nodes.filter((n) => n.type === 'flow').map((n) => n.zIndex || 0)
+      const maxZ = Math.max(0, ...zs), minZ = Math.min(0, ...zs)
+      return {
+        ...d,
+        nodes: d.nodes.map((n) => (ids.includes(n.id)
+          ? { ...n, zIndex: op === 'front' ? maxZ + 1 : op === 'back' ? minZ - 1 : (n.zIndex || 0) + (op === 'forward' ? 1 : -1) }
+          : n)),
+      }
+    })
+    const labels = { front: 'Brought to Front', back: 'Sent to Back', forward: 'Brought Forward', backward: 'Sent Backward' }
+    get().log('diagram', 'arrange', `${labels[op]}: ${ids.length} element${ids.length === 1 ? '' : 's'}`)
+  },
+
   // ---- workflow roles: project-level roles associated to swim lanes ----
   workflowRoles: [], // { id, name }
   addWorkflowRole: (name) => {
