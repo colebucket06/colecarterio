@@ -126,7 +126,8 @@ const startBarDrag = (el) => (e) => {
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up)
 }
-export const barLayout = (wl, el, dx, dy) => ({ mode: 'fixed', compact: true, x: dx, y: dy, ...((wl || {})[el] || {}) })
+// defaults: node palette starts compact; the main toolbar starts full (labels shown)
+export const barLayout = (wl, el, dx, dy) => ({ mode: 'fixed', compact: el === 'palette', x: dx, y: dy, ...((wl || {})[el] || {}) })
 
 function Palette() {
   const typeDefs = useStore((st) => st.typeDefs)
@@ -414,7 +415,7 @@ function ViewMenu() {
           <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace layout</div>
           {[['toolbar', 'Toolbar'], ['palette', 'Node palette']].map(([el, label]) => {
             const wl = vs.workspaceLayout || {}
-            const L = { mode: 'fixed', compact: true, ...(wl[el] || {}) }
+            const L = { mode: 'fixed', compact: el === 'palette', ...(wl[el] || {}) }
             const setL = (patch) => setVs('workspaceLayout', { ...wl, [el]: { ...L, ...patch } })
             return (
               <div key={el} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 11px' }}>

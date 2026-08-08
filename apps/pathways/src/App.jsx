@@ -92,7 +92,7 @@ function WorkspaceBars() {
   return (
     <div>
       {[['toolbar', 'Main toolbar'], ['palette', 'Node palette']].map(([el, label]) => {
-        const L = { mode: 'fixed', compact: true, ...(wl[el] || {}) }
+        const L = { mode: 'fixed', compact: el === 'palette', ...(wl[el] || {}) }
         const setL = (patch) => s.setViewSetting('workspaceLayout', { ...wl, [el]: { ...L, ...patch } })
         return (
           <div key={el} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -110,7 +110,7 @@ function WorkspaceBars() {
         )
       })}
       <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
-        Fixed bars attach flush to the workspace (the main toolbar spans the top); floating detaches them into draggable cards. Compact is the default — icons only, with labels revealed on hover. These settings are also reachable from 👁 View on the workflow toolbar.
+        Fixed bars attach flush to the workspace (the main toolbar spans the top); floating detaches them into draggable cards. The palette defaults to compact (icons only, labels on hover); the main toolbar defaults to full. These settings are also reachable from 👁 View on the workflow toolbar.
       </div>
     </div>
   )
@@ -880,7 +880,7 @@ function ProfileModal({ onClose }) {
 
         <Fold title="🧰 Workspace Bars"
           badge={<span className="tag project">{['toolbar', 'palette'].map((el) => {
-            const L = { mode: 'fixed', compact: true, ...((s.viewSettings.workspaceLayout || {})[el] || {}) }
+            const L = { mode: 'fixed', compact: el === 'palette', ...((s.viewSettings.workspaceLayout || {})[el] || {}) }
             return L.mode === 'floating' ? 'floating' : L.compact ? 'compact' : 'full'
           }).join(' · ')}</span>}>
           <WorkspaceBars />
