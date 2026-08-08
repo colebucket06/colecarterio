@@ -1160,6 +1160,44 @@ export const useStore = create((set, get) => ({
     })
     get().log('diagram', 'arrange', `Cascaded ${ids.length} nodes`)
   },
+  // compute a layout proposal WITHOUT applying it (drives the confirmation dialog).
+  // Reading-order standard: left-to-right ranks, top-to-bottom within ranks; nodes
+  // are fed to dagre in the user's current reading order so their arrangement
+  // biases the result, and params (spacing / direction) come from user feedback.
+  proposeLayout: (params = {}) => {
+    const d = get().activeDiagram()
+    if (!d) return null
+    const { ranksep = 90, nodesep = 55, rankdir = 'LR', align } = params
+    const g = new dagre.graphlib.Graph()
+    g.setGraph({ rankdir, nodesep, ranksep, ...(align ? { align } : {}) })
+    g.setDefaultEdgeLabel(() => ({}))
+    const flowNodes = d.nodes
+      .filter((n) => n.type !== 'section' && n.type !== 'sticky')
+      // insertion order = current reading order (L2R then T2B) so the user's
+      // arrangement is assessed and preserved where the graph allows
+      .sort((a, b) => (a.position.x - b.position.x) || (a.position.y - b.position.y))
+    flowNodes.forEach((n) => g.setNode(n.id, { width: n.measured?.width || NODE_W, height: n.measured?.height || NODE_H }))
+    d.edges.forEach((e) => { if (g.hasNode(e.source) && g.hasNode(e.target)) g.setEdge(e.source, e.target) })
+    dagre.layout(g)
+    const positions = {}
+    flowNodes.forEach((n) => {
+      const gn = g.node(n.id)
+      if (gn) positions[n.id] = { x: gn.x - gn.width / 2 + 60, y: gn.y - gn.height / 2 + 60 }
+    })
+    return { positions, params: { ranksep, nodesep, rankdir, align } }
+  },
+  layoutProposal: null, // { positions, params, attempt, feedback } — confirmation dialog state
+  setLayoutProposal: (v) => set({ layoutProposal: v }),
+  applyLayoutPositions: (positions) => {
+    get().pushHistory('Auto layout')
+    get().updateActive((d) => ({
+      ...d,
+      nodes: d.nodes.map((n) => (positions[n.id] ? { ...n, position: positions[n.id] } : n)),
+      // manual path points are anchored to old node positions — reset them
+      edges: d.edges.map((e) => (e.data?.points?.length ? { ...e, data: { ...e.data, points: [] } } : e)),
+    }))
+    get().log('diagram', 'arrange', 'Applied confirmed auto-layout (reading-order standard; manual path points reset)')
+  },
   autoLayout: () => {
     get().pushHistory('Auto layout')
     get().updateActive((d) => {

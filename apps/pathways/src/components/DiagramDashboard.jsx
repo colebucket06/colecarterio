@@ -144,6 +144,27 @@ const startBarResize = (el, node) => (e) => {
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up)
 }
+// interpret free-text layout feedback into parameter adjustments; when nothing
+// matches, vary alignment/spacing so each retry produces a distinct proposal
+const adjustLayoutParams = (params, feedback, attempt) => {
+  const p = { ...params }
+  const t = (feedback || '').toLowerCase()
+  let matched = false
+  if (/(more|extra|increase|wider|bigger).{0,16}(spac|gap)|too (close|cramped|tight|crowded)|cramped|crowded/.test(t)) { p.nodesep = Math.round(p.nodesep * 1.5); p.ranksep = Math.round(p.ranksep * 1.4); matched = true }
+  if (/(less|decrease|smaller|tighter).{0,16}(spac|gap)|too (far|spread|wide|spaced)|compact/.test(t)) { p.nodesep = Math.max(24, Math.round(p.nodesep * 0.65)); p.ranksep = Math.max(50, Math.round(p.ranksep * 0.7)); matched = true }
+  if (/top.{0,4}(to|2).{0,4}bottom|vertical|stack|column/.test(t)) { p.rankdir = 'TB'; matched = true }
+  if (/left.{0,4}(to|2).{0,4}right|horizontal|row/.test(t)) { p.rankdir = 'LR'; matched = true }
+  if (/(longer|stretch).{0,12}path|paths?.{0,10}(too )?short/.test(t)) { p.ranksep = Math.round(p.ranksep * 1.5); matched = true }
+  if (/(shorter|shrink).{0,12}path|paths?.{0,10}too long/.test(t)) { p.ranksep = Math.max(50, Math.round(p.ranksep * 0.7)); matched = true }
+  if (!matched) {
+    // no recognizable hint: cycle alignment + jitter spacing for a fresh attempt
+    const aligns = [undefined, 'UL', 'DL', 'UR', 'DR']
+    p.align = aligns[attempt % aligns.length]
+    p.nodesep = Math.round(p.nodesep * (attempt % 2 ? 1.25 : 0.85))
+  }
+  return p
+}
+
 // defaults: node palette starts compact; the main toolbar starts full (labels shown)
 export const barLayout = (wl, el, dx, dy) => ({ mode: 'fixed', compact: el === 'palette', x: dx, y: dy, ...((wl || {})[el] || {}) })
 
@@ -376,7 +397,8 @@ function ArrangeToolbar({ selectedIds }) {
   const toggle = (m) => setOpen(open === m ? null : m)
   return (
     <>
-      <button className="btn small" onClick={() => s.autoLayout()} title="Automatic layered layout (dagre)">✨<span className="tb-label"> Auto layout</span></button>
+      <button className="btn small" onClick={() => { const pr = s.proposeLayout(); if (pr) s.setLayoutProposal({ ...pr, attempt: 0, feedback: '' }) }}
+        title="Automatic layered layout — reading-order standard (left-to-right, top-to-bottom). A preview dialog confirms before anything moves.">✨<span className="tb-label"> Auto layout</span></button>
       <span className="menu-wrap">
         <button className="btn small" onClick={() => toggle('align')} disabled={n < 2} title="Align selected nodes">⊞<span className="tb-label"> Align</span> ▾</button>
         {open === 'align' && (
@@ -1935,6 +1957,52 @@ function Canvas() {
                 ✓ Confirm selected ({suggest.checked.size})</button>
               <button className="btn small" onClick={() => { s.applyPathSuggestions(suggest.items, null); setSuggest(null) }}>⚡ Confirm all</button>
               <button className="btn small" onClick={() => setSuggest(null)}>✕ Cancel</button>
+            </div>
+          </div>
+        )
+      })()}
+      {s.layoutProposal && diagram && (() => {
+        const lp = s.layoutProposal
+        const flow = diagram.nodes.filter((n) => n.type !== 'section' && n.type !== 'sticky')
+        const pos = (n) => lp.positions[n.id] || n.position
+        const xs = flow.map((n) => pos(n).x), ys = flow.map((n) => pos(n).y)
+        const minX = Math.min(...xs), minY = Math.min(...ys)
+        const spanX = Math.max(...xs) - minX + 190, spanY = Math.max(...ys) - minY + 64
+        const scale = Math.min(280 / spanX, 150 / spanY)
+        const px = (n) => (pos(n).x - minX) * scale + 8
+        const py = (n) => (pos(n).y - minY) * scale + 6
+        const retry = () => {
+          const params = adjustLayoutParams(lp.params, lp.feedback, lp.attempt + 1)
+          const pr = s.proposeLayout(params)
+          if (pr) s.setLayoutProposal({ ...pr, attempt: lp.attempt + 1, feedback: '' })
+        }
+        return (
+          <div className="auto-connect-panel" style={{ width: 'min(330px, calc(100vw - 40px))' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Proposed layout{lp.attempt > 0 ? ` — attempt ${lp.attempt + 1}` : ''}</h3>
+            <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+              Reading-order standard ({lp.params.rankdir === 'TB' ? 'top-to-bottom' : 'left-to-right, top-to-bottom'}) with consistent spacing and path lengths, keeping your general arrangement. Nothing moves until you apply.
+            </div>
+            <svg width="296" height="162" style={{ display: 'block', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 8 }}>
+              {diagram.edges.map((e) => {
+                const a = flow.find((n) => n.id === e.source), b = flow.find((n) => n.id === e.target)
+                if (!a || !b) return null
+                return <line key={e.id} x1={px(a) + 170 * scale} y1={py(a) + 26 * scale} x2={px(b)} y2={py(b) + 26 * scale}
+                  stroke="var(--accent-2)" strokeWidth="1" opacity="0.7" />
+              })}
+              {flow.map((n) => (
+                <rect key={n.id} x={px(n)} y={py(n)} width={Math.max(6, 170 * scale)} height={Math.max(4, 52 * scale)}
+                  rx="2" fill={n.data.color || '#3b82f6'} opacity="0.9" />
+              ))}
+            </svg>
+            <textarea rows={2} style={{ width: '100%', fontSize: 11.5 }} value={lp.feedback}
+              placeholder='Not right? Say why — e.g. "too cramped, more spacing", "make it top-to-bottom", "paths too long" — then Try another.'
+              onChange={(e) => s.setLayoutProposal({ ...lp, feedback: e.target.value })} />
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button className="btn small primary"
+                onClick={() => { s.applyLayoutPositions(lp.positions); s.setLayoutProposal(null) }}>✓ Apply layout</button>
+              <button className="btn small" title="Generate a different proposal — your note above steers the adjustment"
+                onClick={retry}>↻ Try another</button>
+              <button className="btn small" onClick={() => s.setLayoutProposal(null)}>✕ Cancel</button>
             </div>
           </div>
         )
