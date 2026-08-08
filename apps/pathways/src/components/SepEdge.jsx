@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, useReactFlow, useViewport } from '@xyflow/react'
-import { useStore } from '../store'
+import { useStore, casesLinkedTo, stepsLinkedTo, indicatorsFor } from '../store'
+import { IndCluster } from './FlowNode'
 
 // Custom edge with two routing modes (per-diagram setting):
 //  - 'auto':    bezier curves, fully automatic
@@ -49,6 +50,11 @@ export default function SepEdge(props) {
   } = props
   const vs = useStore((s) => s.viewSettings)
   const diagram = useStore((s) => s.diagrams.find((d) => d.id === s.activeDiagramId))
+  const cases = useStore((s) => s.cases)
+  // attachment / test-link indicator icons for this path
+  const ind = React.useMemo(() => (vs.showIndicators === false ? [] :
+    indicatorsFor(data?.attachments, casesLinkedTo(cases, diagram?.id, id), stepsLinkedTo(cases, id))),
+    [cases, diagram?.id, id, data?.attachments, vs.showIndicators])
   const moveEdgePoint = useStore((s) => s.moveEdgePoint)
   const relocRequest = useStore((s) => s.relocRequest)
   const { screenToFlowPosition } = useReactFlow()
@@ -309,18 +315,30 @@ export default function SepEdge(props) {
           const pinTs = points.map((pt) => nearest(samples, pt.x, pt.y).t)
           const startPos = { x: e.clientX, y: e.clientY }
           let engaged = false
+          let lastT = data?.labelPos?.t ?? 0.5
           const onMove = (ev) => {
             if (!engaged && Math.hypot(ev.clientX - startPos.x, ev.clientY - startPos.y) < 3) return
             if (!engaged) { engaged = true; useStore.getState().pushHistory('Move path label', `lbl:${id}`) }
             const f = screenToFlowPosition({ x: ev.clientX, y: ev.clientY })
             let tt = nearest(samples, f.x, f.y).t
-            for (const p of pinTs) if (Math.abs(p - tt) < 0.03) { tt = p; break }
+            // magnetic snapping: manual path points first, then the path center
+            let snapped = false
+            for (const p of pinTs) if (Math.abs(p - tt) < 0.03) { tt = p; snapped = true; break }
+            if (!snapped && Math.abs(tt - 0.5) < 0.05) tt = 0.5
+            lastT = tt
             useStore.getState().setEdgeLabelPos(id, Math.round(tt * 1000) / 1000)
           }
           const onUp = () => {
             window.removeEventListener('pointermove', onMove)
             window.removeEventListener('pointerup', onUp)
-            if (engaged) useStore.getState().log('diagram', 'edit-edge', 'Relocated path label', id)
+            if (engaged) {
+              // release magnet: settle onto the center (or a path point) when close
+              let t2 = lastT
+              for (const p of pinTs) if (Math.abs(p - t2) < 0.05) { t2 = p; break }
+              if (Math.abs(t2 - 0.5) < 0.08) t2 = 0.5
+              if (t2 !== lastT) useStore.getState().setEdgeLabelPos(id, t2)
+              useStore.getState().log('diagram', 'edit-edge', 'Relocated path label', id)
+            }
           }
           window.addEventListener('pointermove', onMove)
           window.addEventListener('pointerup', onUp)
@@ -334,13 +352,21 @@ export default function SepEdge(props) {
                 useStore.getState().pushHistory('Reset path label position', `lbl:${id}`)
                 useStore.getState().setEdgeLabelPos(id, null)
               }}
-              title="Drag to relocate along the path (snaps to path points) · double-click to re-center">
+              title="Drag to relocate along the path (snaps to the center and to path points) · double-click to re-center">
               {label}
               {!!vs.showEdgeLogic && data?.condition && <div className="sep-edge-logic">{data.condition}</div>}
+              {ind.length > 0 && <IndCluster ind={ind} />}
             </div>
           </EdgeLabelRenderer>
         )
       })()}
+      {ind.length > 0 && !(label && vs.showEdgeLabels !== false) && (
+        <EdgeLabelRenderer>
+          <div className="edge-ind" style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}>
+            <IndCluster ind={ind} />
+          </div>
+        </EdgeLabelRenderer>
+      )}
     </>
   )
 }

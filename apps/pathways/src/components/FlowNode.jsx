@@ -33,6 +33,31 @@ export const bgCss = (bg) => (bg?.type === 'gradient'
   ? `linear-gradient(${bg.angle ?? 135}deg, ${bg.color || '#3b82f6'}, ${bg.color2 || '#a855f7'})`
   : (bg?.color || null))
 
+// indicator cluster: single icon, or a group icon when multiple conditions are
+// met — hovering spans out every icon with its attachment / link details
+export function IndCluster({ ind }) {
+  if (!ind || !ind.length) return null
+  const multi = ind.length > 1
+  const title = multi ? `${ind.length} indicators — hover to expand` : ind[0].label
+  return (
+    <span className="nind" title={multi ? undefined : undefined}>
+      <span className="nind-main" title={title}>
+        {multi ? '🗂' : ind[0].icon}
+        {!multi && ind[0].n ? <small>{ind[0].n}</small> : null}
+      </span>
+      <span className="nind-fly">
+        {ind.map((x, i) => (
+          <span key={i} className="nind-item">
+            <b>{x.icon}{x.n ? <small> {x.n}</small> : null} {x.label}</b>
+            {x.items.slice(0, 6).map((it, j) => <span key={j} className="nind-sub">{it}</span>)}
+            {x.items.length > 6 && <span className="nind-sub">… {x.items.length - 6} more</span>}
+          </span>
+        ))}
+      </span>
+    </span>
+  )
+}
+
 const JUSTIFY = { left: 'flex-start', center: 'center', right: 'flex-end', justify: 'flex-start' }
 const VALIGN = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }
 
@@ -107,6 +132,7 @@ export default function FlowNode({ id, data, selected }) {
           </div>
         )}
       </div>
+      {data.__ind && <IndCluster ind={data.__ind} />}
       <Handle type="source" position={Position.Right} id="sr" />
       <Handle type="source" position={Position.Bottom} id="sb" />
     </div>

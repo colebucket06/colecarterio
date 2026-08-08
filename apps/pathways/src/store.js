@@ -23,6 +23,34 @@ export const NODE_TEMPLATES = [
   { type: 'section',    label: 'Section',    icon: '▭',  color: '#4f7cff', desc: 'Semi-transparent grouping backdrop with its own attribution' },
 ]
 
+// steps (any case) that map a given diagram element
+export const stepsLinkedTo = (cases, elementId) =>
+  cases.flatMap((c) => c.steps
+    .map((st, i) => ({ caseName: c.name, index: i, st }))
+    .filter(({ st }) => (st.targetIds || []).includes(elementId)))
+
+// indicator icons for a node/path: attachments (📎 files, 📸 screenshots,
+// 🎥 recordings) and test links (🔗, numbered when steps are involved)
+export const indicatorsFor = (attachments, linkedCases, linkedSteps) => {
+  const atts = attachments || []
+  const isImg = (a) => (a.type || '').startsWith('image/')
+  const isAV = (a) => (a.type || '').startsWith('video/') || (a.type || '').startsWith('audio/')
+  const shots = atts.filter(isImg)
+  const recs = atts.filter(isAV)
+  const files = atts.filter((a) => !isImg(a) && !isAV(a))
+  const out = []
+  if (files.length) out.push({ icon: '📎', label: `${files.length} Attachment${files.length === 1 ? '' : 's'}`, items: files.map((a) => a.name) })
+  if (shots.length) out.push({ icon: '📸', label: `${shots.length} Screenshot${shots.length === 1 ? '' : 's'}`, items: shots.map((a) => a.name) })
+  if (recs.length) out.push({ icon: '🎥', label: `${recs.length} Recording${recs.length === 1 ? '' : 's'}`, items: recs.map((a) => a.name) })
+  const lc = linkedCases || [], ls = linkedSteps || []
+  if (lc.length || ls.length) out.push({
+    icon: '🔗', n: ls.length || null,
+    label: `${lc.length ? `${lc.length} Linked Case${lc.length === 1 ? '' : 's'}` : ''}${lc.length && ls.length ? ' · ' : ''}${ls.length ? `${ls.length} Linked Step${ls.length === 1 ? '' : 's'}` : ''}`,
+    items: [...lc.map((c) => `🧪 ${c.name}`), ...ls.map((x) => `🎯 ${x.caseName} · step ${x.index + 1}`)],
+  })
+  return out
+}
+
 // path-suggestion configuration with defaults (start needs no input, end no output)
 export const suggestCfg = (vs) => ({ enabled: true, autoConnect: true, flags: true, noInput: ['start'], noOutput: ['end'], ...((vs || {}).pathSuggest || {}) })
 

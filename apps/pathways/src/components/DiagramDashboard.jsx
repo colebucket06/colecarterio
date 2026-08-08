@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow } from '@xyflow/react'
-import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, mergedTemplates, mergedTemplate, suggestCfg } from '../store'
+import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, stepsLinkedTo, indicatorsFor, mergedTemplates, mergedTemplate, suggestCfg } from '../store'
 import FlowNode, { SectionNode, StickyNode, iconInk } from './FlowNode'
 import { useSmartMenuPos } from './menuPos'
 import { RunSummaryModal, sevColor } from './Bugs'
@@ -627,6 +627,10 @@ function ViewMenu() {
               <span style={{ width: 16 }}>{vs[k] ? '✓' : ''}</span>{label}
             </button>
           ))}
+          <button title="📎 attachments, 📸 screenshots, 🎥 recordings, and 🔗 test links shown at the corner of nodes and on paths (🗂 groups multiple — hover it to expand)"
+            onClick={() => setVs('showIndicators', !(vs.showIndicators !== false))}>
+            <span style={{ width: 16 }}>{vs.showIndicators !== false ? '✓' : ''}</span>Attachment & Link Icons
+          </button>
           <div className="sep" />
           <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path Fields</div>
           {PATH_TOGGLES.map(([k, label, def, tip]) => (
@@ -1659,9 +1663,14 @@ function Canvas() {
           const m = missingPaths[n.id]
           extra.__pathIssue = m.missIn && m.missOut ? 'input & output paths' : m.missIn ? 'an input path' : 'an output path'
         }
+        if (s.viewSettings.showIndicators !== false && n.type === 'flow') {
+          const ind = indicatorsFor(n.data.attachments,
+            casesLinkedTo(s.cases, s.activeDiagramId, n.id), stepsLinkedTo(s.cases, n.id))
+          if (ind.length) extra.__ind = ind
+        }
         return Object.keys(extra).length ? { ...n, data: { ...n.data, ...extra } } : n
       }),
-    [diagram, covered, runIds, stepIds, previewIds, branchNodeIds, ghostNodeIds, bugsByNode, showComments, ps.flags, missingPaths],
+    [diagram, covered, runIds, stepIds, previewIds, branchNodeIds, ghostNodeIds, bugsByNode, showComments, ps.flags, missingPaths, s.cases, s.activeDiagramId, s.viewSettings.showIndicators],
   )
   const pathColors = s.viewSettings.pathColors || {}
   const classColors = s.viewSettings.pathClassColors !== false
