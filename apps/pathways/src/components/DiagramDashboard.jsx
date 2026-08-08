@@ -1463,6 +1463,10 @@ function Canvas() {
   const edges = useMemo(
     () => (diagram?.edges || []).map((e) => {
       const base = { ...e, type: 'sep' }
+      // splice dialog open: the existing path that Option 2 would remove pulses red
+      if (suggest?.mode === 'splice' && e.id === suggest.replaceEdgeId)
+        return { ...base, className: 'suggest-remove', animated: true,
+          style: { stroke: '#ef4444', strokeWidth: 2.8, strokeDasharray: '5 5' } }
       // Ghost precedence: hidden connections, or connections touching a ghosted node
       if (hiddenSet.has(e.id) || ghostNodeIds.has(e.source) || ghostNodeIds.has(e.target))
         return { ...base, style: { stroke: 'rgba(122,143,196,0.3)', strokeWidth: 1.5, strokeDasharray: '6 5' }, animated: false, label: '' }
@@ -1530,9 +1534,9 @@ function Canvas() {
     if (onEdge) {
       const a = byId[onEdge.source], b = byId[onEdge.target]
       setSuggest({
-        mode: 'splice', replaceEdgeId: onEdge.id,
+        mode: 'splice', replaceEdgeId: onEdge.id, nodeId: node.id,
         items: [{ source: onEdge.source, target: node.id }, { source: node.id, target: onEdge.target }],
-        text: `Insert "${node.data.label}" into the path ${a.data.label} → ${b.data.label}? The existing path is replaced by an input and an output connection.`,
+        aLabel: a.data.label, bLabel: b.data.label, nLabel: node.data.label,
       })
       return
     }
@@ -1737,7 +1741,7 @@ function Canvas() {
           🎯 Mapping test step to the diagram — click nodes / connections to toggle ({stepIds.size} selected) · click here when done ✓
         </div>
       )}
-      {suggest && suggest.mode !== 'auto' && (
+      {suggest && suggest.mode === 'drop' && (
         <div className="brush-banner suggest-banner">
           ✨ {suggest.text}
           <button className="btn small primary" style={{ marginLeft: 10 }}
@@ -1746,6 +1750,50 @@ function Canvas() {
           <button className="btn small" onClick={() => setSuggest(null)}>✕ Dismiss</button>
         </div>
       )}
+      {suggest && suggest.mode === 'splice' && (() => {
+        const { aLabel, bLabel, nLabel } = suggest
+        const Pic = ({ broken }) => (
+          <svg width="182" height="52" style={{ flexShrink: 0 }}>
+            <defs><marker id={'ar' + (broken ? 'b' : 'k')} markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+              <path d="M0,0 L7,3.5 L0,7 z" fill="var(--accent-2)" /></marker></defs>
+            {/* existing path A→B: kept (green) or broken (red, struck) */}
+            <line x1="26" y1="16" x2="156" y2="16" stroke={broken ? '#ef4444' : '#22c55e'} strokeWidth="2"
+              strokeDasharray={broken ? '5 4' : undefined} />
+            {broken && <line x1="84" y1="8" x2="98" y2="24" stroke="#ef4444" strokeWidth="2" />}
+            {/* new connections A→N→B */}
+            <path d="M 26 20 Q 56 42 88 42" fill="none" stroke="var(--accent-2)" strokeWidth="2" markerEnd={'url(#ar' + (broken ? 'b' : 'k') + ')'} />
+            <path d="M 96 42 Q 128 42 156 20" fill="none" stroke="var(--accent-2)" strokeWidth="2" markerEnd={'url(#ar' + (broken ? 'b' : 'k') + ')'} />
+            <circle cx="18" cy="16" r="8" fill="#22c55e" /><text x="18" y="20" textAnchor="middle" fontSize="10" fill="#04250f">A</text>
+            <circle cx="164" cy="16" r="8" fill="#f59e0b" /><text x="164" y="20" textAnchor="middle" fontSize="10" fill="#3a2503">B</text>
+            <rect x="82" y="34" width="18" height="16" rx="4" fill="var(--accent-2)" /><text x="91" y="46" textAnchor="middle" fontSize="10" fill="#062a33">N</text>
+          </svg>
+        )
+        const choose = (replace) => { s.applyPathSuggestions(suggest.items, replace ? suggest.replaceEdgeId : null); setSuggest(null) }
+        const cancel = () => { setSuggest(null); s.undo() }
+        return (
+          <div className="auto-connect-panel splice-panel">
+            <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Node dropped on a path</h3>
+            <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 10 }}>
+              "<b>{nLabel}</b>" landed on <b>{aLabel}</b> → <b>{bLabel}</b>. The glowing paths preview the new connections; the red path is the one Option 2 removes.
+            </div>
+            <div className="splice-opt" onClick={() => choose(false)}>
+              <Pic broken={false} />
+              <div><b>1 · Add node & new paths</b>
+                <div>Keep the existing {aLabel} → {bLabel} path and add both new connections: {aLabel} → {nLabel} and {nLabel} → {bLabel}.</div></div>
+            </div>
+            <div className="splice-opt" onClick={() => choose(true)}>
+              <Pic broken />
+              <div><b>2 · Break existing path</b>
+                <div>Remove {aLabel} → {bLabel} and replace it with the two new connections: {aLabel} → {nLabel} and {nLabel} → {bLabel}.</div></div>
+            </div>
+            <div className="splice-opt cancel" onClick={cancel}>
+              <div style={{ width: 182, textAlign: 'center', fontSize: 20 }}>↩</div>
+              <div><b>3 · Cancel</b>
+                <div>Discard the new node and revert the workflow to its state before the drop.</div></div>
+            </div>
+          </div>
+        )
+      })()}
       {suggest && suggest.mode === 'auto' && (() => {
         const name = (id) => diagram?.nodes.find((n) => n.id === id)?.data.label || '?'
         const toggleRow = (i) => setSuggest((sg) => {
