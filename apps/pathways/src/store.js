@@ -281,6 +281,7 @@ export const useStore = create((set, get) => ({
   accounts: [
     { email: 'colebucket06@gmail.com', firstName: 'Cole', lastName: 'Carter', business: 'colecarter.io', role: 'owner', password: 'Pathways!Admin#2026Cc', enabled: true, profileComplete: true, preferredName: 'Cole', company: 'colecarter.io', title: 'Owner', jobRole: 'Platform Owner', about: '', passions: '' },
     { email: 'kyle.cook@charter.net', firstName: 'Kyle', lastName: 'Cook', business: 'Charter', role: 'user', password: 'Charter#Kyle!2026$Pw', enabled: true, profileComplete: true, preferredName: 'Kyle', company: 'Charter', title: '', jobRole: '', about: '', passions: '' },
+    { email: 'micahferraro@gmail.com', firstName: 'Micah', lastName: 'Ferraro', business: '', role: 'user', password: 'MicahFerraroT3$t123', enabled: true, profileComplete: false, preferredName: 'Micah', company: '', title: '', jobRole: '', about: '', passions: '' },
   ],
   accessRequests: [],
   session: null, // { email, name, role, sharedSuiteIds: null | [suiteId], launched: bool }
