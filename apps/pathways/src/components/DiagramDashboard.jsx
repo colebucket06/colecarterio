@@ -1271,8 +1271,30 @@ function PropsPanel({ selection, onClose }) {
 function Canvas() {
   const s = useStore()
   const diagram = s.diagrams.find((d) => d.id === s.activeDiagramId)
-  const { screenToFlowPosition, fitView } = useReactFlow()
+  const rf = useReactFlow()
+  const { screenToFlowPosition, fitView } = rf
   const [tip, setTip] = useState(null)
+  // ---- wheel scheme: plain scroll = zoom AT the cursor (Adobe-style, React Flow's
+  // pointer-anchored d3 zoom); Ctrl+scroll = vertical pan; Shift+scroll = horizontal
+  // pan. Native capture listener (passive: false) so the modifiers never reach the
+  // zoom handler and the browser's own ctrl-zoom is suppressed. ----
+  const wheelRef = useRef(null)
+  useEffect(() => {
+    const el = wheelRef.current
+    if (!el) return
+    const onWheel = (e) => {
+      if (!e.ctrlKey && !e.shiftKey) return           // plain wheel → cursor-anchored zoom
+      if (!e.target.closest?.('.react-flow')) return  // panels/sidebars keep native scrolling
+      e.preventDefault()
+      e.stopPropagation()
+      const vp = rf.getViewport()
+      const d = e.deltaY !== 0 ? e.deltaY : e.deltaX
+      if (e.ctrlKey) rf.setViewport({ ...vp, y: vp.y - d })       // Ctrl → scroll vertically
+      else rf.setViewport({ ...vp, x: vp.x - d })                  // Shift → scroll horizontally
+    }
+    el.addEventListener('wheel', onWheel, { capture: true, passive: false })
+    return () => el.removeEventListener('wheel', onWheel, { capture: true })
+  }, [rf])
   const [menu, setMenu] = useState(null)
   const edgeSelRef = useRef({ id: null, was: false, t: 0 })
   // role gating: viewers get navigation, view options, filtering and export only
@@ -1466,7 +1488,7 @@ function Canvas() {
   }
 
   return (
-    <div className={'canvas-wrap' + (s.brush ? ' brushing' : '')}
+    <div className={'canvas-wrap' + (s.brush ? ' brushing' : '')} ref={wheelRef}
       onClick={() => { setMenu(null); if (useStore.getState().wpMenu) useStore.setState({ wpMenu: null }) }}>
       <div className={'canvas-toolbar' + (tbL.mode === 'floating' ? ' floating' : tbL.compact ? ' compact' : '')}
         style={tbL.mode === 'floating' ? { left: tbL.x, top: tbL.y, maxWidth: 'none', zIndex: 40 } : undefined}>
@@ -1514,7 +1536,7 @@ function Canvas() {
         nodesDraggable={canEdit} nodesConnectable={canEdit} edgesReconnectable={canEdit}
         onReconnect={(oldEdge, conn) => s.reconnectEdgeEnds(oldEdge, conn)} reconnectRadius={14}
         onDrop={canEdit ? onDrop : undefined} onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-        selectionOnDrag panOnDrag={[1, 2]} selectionMode="partial" multiSelectionKeyCode={['Shift', 'Control', 'Meta']} panOnScroll
+        selectionOnDrag panOnDrag={[1, 2]} selectionMode="partial" multiSelectionKeyCode={['Shift', 'Control', 'Meta']} zoomOnScroll
         connectionMode="loose"
         onSelectionChange={onSelectionChange}
         onSelectionContextMenu={(e, sel) => { e.preventDefault(); setTip(null); setMenu({ type: 'multi', ids: sel.map((n) => n.id), x: e.clientX, y: e.clientY, tryBrush }) }}
