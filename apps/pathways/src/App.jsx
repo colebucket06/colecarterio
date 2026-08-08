@@ -84,6 +84,38 @@ function NotifPanel({ onClose }) {
   )
 }
 
+
+// workspace bars: fixed/floating + compact, configurable from the user profile
+function WorkspaceBars() {
+  const s = useStore()
+  const wl = s.viewSettings.workspaceLayout || {}
+  return (
+    <div>
+      {[['toolbar', 'Main toolbar'], ['palette', 'Node palette']].map(([el, label]) => {
+        const L = { mode: 'fixed', compact: true, ...(wl[el] || {}) }
+        const setL = (patch) => s.setViewSetting('workspaceLayout', { ...wl, [el]: { ...L, ...patch } })
+        return (
+          <div key={el} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <span style={{ width: 100, fontSize: 12.5 }}>{label}</span>
+            <span className="seg">
+              <button className={L.mode === 'fixed' ? 'on accent' : ''} title="Attached to the workspace edge" onClick={() => setL({ mode: 'fixed' })}>Fixed</button>
+              <button className={L.mode === 'floating' ? 'on accent' : ''} title="Free-floating rounded card — drag it anywhere with the ⠿ grip" onClick={() => setL({ mode: 'floating' })}>Floating</button>
+            </span>
+            <label className="toggle" style={{ opacity: L.mode === 'fixed' ? 1 : 0.4 }}
+              title="Compact: icons only — hovering reveals the labels. Fixed bars only.">
+              <input type="checkbox" disabled={L.mode !== 'fixed'} checked={L.mode === 'fixed' && !!L.compact}
+                onChange={(e) => setL({ compact: e.target.checked })} /> compact
+            </label>
+          </div>
+        )
+      })}
+      <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
+        Fixed bars attach flush to the workspace (the main toolbar spans the top); floating detaches them into draggable cards. Compact is the default — icons only, with labels revealed on hover. These settings are also reachable from 👁 View on the workflow toolbar.
+      </div>
+    </div>
+  )
+}
+
 // per-mode configurable color scheme (global colors applied through CSS variables)
 // saved themes: save the current scheme under a name, apply any saved one, star a default
 function SavedThemes() {
@@ -844,6 +876,14 @@ function ProfileModal({ onClose }) {
 
         <Fold title="📁 Projects" badge={<span className="tag project">{s.projectsHub.length + 1}</span>}>
           <ProjectsManager />
+        </Fold>
+
+        <Fold title="🧰 Workspace Bars"
+          badge={<span className="tag project">{['toolbar', 'palette'].map((el) => {
+            const L = { mode: 'fixed', compact: true, ...((s.viewSettings.workspaceLayout || {})[el] || {}) }
+            return L.mode === 'floating' ? 'floating' : L.compact ? 'compact' : 'full'
+          }).join(' · ')}</span>}>
+          <WorkspaceBars />
         </Fold>
 
         <Fold title="🎨 Appearance & Theme"
