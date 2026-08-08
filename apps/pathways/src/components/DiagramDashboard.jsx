@@ -1355,6 +1355,13 @@ function Canvas() {
   // { mode: 'drop'|'splice', items: [{source,target}], replaceEdgeId, text }
   // { mode: 'auto',  items, checked: Set(index) }
   const [suggest, setSuggest] = useState(null)
+  // ghost items derive from the live selections in the drop dialog
+  const sugItems = suggest?.mode === 'drop'
+    ? [
+      ...(suggest.input ? [{ source: suggest.input, target: suggest.nodeId }] : []),
+      ...(suggest.output ? [{ source: suggest.nodeId, target: suggest.output }] : []),
+    ]
+    : (suggest?.items || [])
   const [renDiagram, setRenDiagram] = useState(null) // string = editing value, null = closed
   const [formatting, setFormatting] = useState(false)
   const [brushConfirm, setBrushConfirm] = useState(null) // { ids, mismatched: [node] }
@@ -1484,15 +1491,15 @@ function Canvas() {
         if (cls === 'negative' && clsEnabled.negative !== false) return { ...base, style: { stroke: pathColors.negative || '#ef4444', strokeWidth: 2.2 } }
       }
       return base
-    }).concat((suggest?.items || [])
-      .filter((_, i) => suggest.mode !== 'auto' || suggest.checked.has(i))
+    }).concat(sugItems
+      .filter((_, i) => suggest?.mode !== 'auto' || suggest.checked.has(i))
       .map((it, i) => ({
         id: 'sug-' + i, source: it.source, target: it.target,
         sourceHandle: 'sr', targetHandle: 'tl', type: 'sep', className: 'suggest-edge',
         style: { stroke: 'var(--accent-2)', strokeWidth: 2.6, strokeDasharray: '7 6' },
         animated: true, label: '', data: { classification: 'default' }, selectable: false,
       }))),
-    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled, suggest],
+    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled, suggest, sugItems], // eslint-disable-line
   )
 
   const select = useCallback((id) => setSelection({ kind: 'node', id }), [])
@@ -1540,18 +1547,19 @@ function Canvas() {
       })
       return
     }
-    // 2. otherwise: ghost path from the nearest node
-    let best = null, bestD = 800
-    for (const n of flow) {
-      const dist = Math.hypot(center(n).x - pos.x, center(n).y - pos.y)
-      if (dist < bestD) { best = n; bestD = dist }
+    // 2. otherwise: propose an input (nearest node → new) and an output
+    // (new → second-nearest), both re-targetable in the confirmation dialog
+    const ranked = flow
+      .map((n) => ({ id: n.id, d: Math.hypot(center(n).x - pos.x, center(n).y - pos.y) }))
+      .sort((a, b) => a.d - b.d)
+    if (ranked.length && ranked[0].d < 800) {
+      setSuggest({
+        mode: 'drop', replaceEdgeId: null, nodeId: node.id, nLabel: node.data.label,
+        input: ranked[0].id, output: ranked[1]?.id || null,
+      })
     }
-    if (best) setSuggest({
-      mode: 'drop', replaceEdgeId: null,
-      items: [{ source: best.id, target: node.id }],
-      text: `Connect "${best.data.label}" → "${node.data.label}"?`,
-    })
   }
+
 
   const onDrop = useCallback((e) => {
     e.preventDefault()
@@ -1741,15 +1749,52 @@ function Canvas() {
           🎯 Mapping test step to the diagram — click nodes / connections to toggle ({stepIds.size} selected) · click here when done ✓
         </div>
       )}
-      {suggest && suggest.mode === 'drop' && (
-        <div className="brush-banner suggest-banner">
-          ✨ {suggest.text}
-          <button className="btn small primary" style={{ marginLeft: 10 }}
-            onClick={() => { s.applyPathSuggestions(suggest.items, suggest.replaceEdgeId); setSuggest(null) }}>
-            ✓ Connect{suggest.items.length > 1 ? ` (${suggest.items.length})` : ''}</button>
-          <button className="btn small" onClick={() => setSuggest(null)}>✕ Dismiss</button>
-        </div>
-      )}
+      {suggest && suggest.mode === 'drop' && (() => {
+        const flowNodes = (diagram?.nodes || []).filter((n) => n.type === 'flow' && n.id !== suggest.nodeId)
+        const name = (id) => flowNodes.find((n) => n.id === id)?.data.label || '—'
+        const hasIn = !!suggest.input, hasOut = !!suggest.output
+        return (
+          <div className="auto-connect-panel splice-panel drop-panel">
+            <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Connect "{suggest.nLabel}"</h3>
+            <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 8 }}>
+              Suggested input and output paths for the new node — adjust the targets and the preview updates on the canvas and below.
+            </div>
+            <svg width="220" height="52" style={{ display: 'block', margin: '0 auto 8px' }}>
+              <defs><marker id="dropAr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+                <path d="M0,0 L7,3.5 L0,7 z" fill="var(--accent-2)" /></marker></defs>
+              {hasIn && <line x1="34" y1="26" x2="92" y2="26" stroke="var(--accent-2)" strokeWidth="2" markerEnd="url(#dropAr)" />}
+              {hasOut && <line x1="128" y1="26" x2="186" y2="26" stroke="var(--accent-2)" strokeWidth="2" markerEnd="url(#dropAr)" />}
+              <circle cx="22" cy="26" r="9" fill={hasIn ? '#22c55e' : 'var(--border)'} />
+              <text x="22" y="30" textAnchor="middle" fontSize="10" fill="#04250f">{hasIn ? 'IN' : '–'}</text>
+              <rect x="98" y="16" width="24" height="20" rx="5" fill="var(--accent-2)" />
+              <text x="110" y="30" textAnchor="middle" fontSize="10" fill="#062a33">N</text>
+              <circle cx="198" cy="26" r="9" fill={hasOut ? '#f59e0b' : 'var(--border)'} />
+              <text x="198" y="30" textAnchor="middle" fontSize="10" fill="#3a2503">{hasOut ? 'OUT' : '–'}</text>
+            </svg>
+            <div className="field" style={{ marginBottom: 6 }}><label>Input path — from</label>
+              <select value={suggest.input || ''} onChange={(e) => setSuggest({ ...suggest, input: e.target.value || null })}>
+                <option value="">— no input connection —</option>
+                {flowNodes.filter((n) => n.id !== suggest.output).map((n) => <option key={n.id} value={n.id}>{n.data.label}</option>)}
+              </select></div>
+            <div className="field" style={{ marginBottom: 8 }}><label>Output path — to</label>
+              <select value={suggest.output || ''} onChange={(e) => setSuggest({ ...suggest, output: e.target.value || null })}>
+                <option value="">— no output connection —</option>
+                {flowNodes.filter((n) => n.id !== suggest.input).map((n) => <option key={n.id} value={n.id}>{n.data.label}</option>)}
+              </select></div>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8 }}>
+              {hasIn && <>⇢ {name(suggest.input)} → <b>{suggest.nLabel}</b>{hasOut ? ' · ' : ''}</>}
+              {hasOut && <>⇢ <b>{suggest.nLabel}</b> → {name(suggest.output)}</>}
+              {!hasIn && !hasOut && 'No connections selected.'}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn small primary" disabled={!sugItems.length}
+                onClick={() => { s.applyPathSuggestions(sugItems, null); setSuggest(null) }}>✓ Confirm ({sugItems.length})</button>
+              <button className="btn small danger" title="Remove the new node and revert the workflow to its state before the drop"
+                onClick={() => { setSuggest(null); s.undo() }}>✕ Cancel</button>
+            </div>
+          </div>
+        )
+      })()}
       {suggest && suggest.mode === 'splice' && (() => {
         const { aLabel, bLabel, nLabel } = suggest
         const Pic = ({ broken }) => (
