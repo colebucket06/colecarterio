@@ -16,11 +16,11 @@ export const THEME_KEYS = [
 export const THEME_DEFAULTS = {
   dark: {
     bg: '#0b1020', bg2: '#101731', bg3: '#17203f', panel: '#17203f', border: '#788cc8',
-    text: '#e6ebff', textDim: '#8b96c2', accent: '#4f7cff', accent2: '#22d3ee', canvasDot: '#2a3560',
+    text: '#e6ebff', textDim: '#8b96c2', accent: '#4f7cff', accent2: '#22d3ee', canvasDot: '#2a3560', gridAlpha: 1,
   },
   light: {
     bg: '#eef2fa', bg2: '#ffffff', bg3: '#dde5f4', panel: '#ffffff', border: '#46508c',
-    text: '#1c2440', textDim: '#5b6690', accent: '#4f7cff', accent2: '#0891b2', canvasDot: '#c6d0e8',
+    text: '#1c2440', textDim: '#5b6690', accent: '#4f7cff', accent2: '#0891b2', canvasDot: '#c6d0e8', gridAlpha: 1,
   },
 }
 
@@ -109,7 +109,9 @@ export const applyThemeToDOM = (theme, mode = null) => {
   const t = resolveTheme(theme, mode)
   const root = document.documentElement
   THEME_KEYS.forEach(({ key, var: v, alpha }) => {
-    const val = alpha != null ? `color-mix(in srgb, ${t[key]} ${Math.round(alpha * 100)}%, transparent)` : t[key]
+    // canvas grid: user-configurable transparency rides on the color
+    const a = key === 'canvasDot' ? (t.gridAlpha ?? 1) * (alpha ?? 1) : alpha
+    const val = a != null && a < 1 ? `color-mix(in srgb, ${t[key]} ${Math.round(a * 100)}%, transparent)` : t[key]
     root.style.setProperty(v, val)
   })
   document.body.classList.toggle('light', t.mode === 'light')

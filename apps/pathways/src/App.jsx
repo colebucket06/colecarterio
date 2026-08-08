@@ -265,6 +265,15 @@ function AdvancedScheme() {
           </div>
         ))}
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 2px 2px' }}
+        title="Transparency of the canvas grid dots/lines for this scheme">
+        <span style={{ fontSize: 12 }}>Canvas grid transparency</span>
+        <input type="range" min="0.05" max="1" step="0.05" style={{ flex: 1, padding: 0 }}
+          value={resolved.gridAlpha ?? 1}
+          onChange={(e) => s.setThemeColor(editMode, 'gridAlpha', Number(e.target.value))} />
+        <span style={{ fontSize: 11.5, width: 38, textAlign: 'right' }}>{Math.round((resolved.gridAlpha ?? 1) * 100)}%</span>
+        {(s.theme.custom[editMode] || {}).gridAlpha != null && <span className="tag project">custom</span>}
+      </div>
       <div className="suggest-box">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <b style={{ fontSize: 12 }}>✨ Suggested {altMode} palette</b>

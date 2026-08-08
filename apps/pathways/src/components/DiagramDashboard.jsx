@@ -490,6 +490,15 @@ function ViewMenu() {
           <button disabled={!vs.gridEnabled} onClick={() => setVs('gridSnap', vs.gridSnap === false)}>
             <span style={{ width: 16 }}>{vs.gridEnabled && vs.gridSnap !== false ? '✓' : ''}</span>🧲 Affix elements to grid
           </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 11px 8px', opacity: vs.gridEnabled && vs.gridSnap !== false ? 1 : 0.45 }}
+            title="Snap positioning is independent of the visual grid — e.g. snap every 5px while the grid displays at 20px">
+            <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>Snap</span>
+            <input type="range" min="2" max="80" step="1" style={{ flex: 1, padding: 0 }}
+              disabled={!vs.gridEnabled || vs.gridSnap === false}
+              value={vs.gridSnapSize || vs.gridSize || 20}
+              onChange={(e) => setVs('gridSnapSize', Number(e.target.value))} />
+            <span style={{ fontSize: 11.5, width: 34, textAlign: 'right' }}>{vs.gridSnapSize || vs.gridSize || 20}px</span>
+          </div>
           <div className="sep" />
           <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace comments</div>
           <button onClick={() => setVs('showComments', vs.showComments === false)}>
@@ -1630,9 +1639,9 @@ function Canvas() {
         deleteKeyCode={canEdit ? ['Delete', 'Backspace'] : null} fitView proOptions={{ hideAttribution: true }}
         elevateNodesOnSelect={false} minZoom={0.08}
         snapToGrid={!!s.viewSettings.gridEnabled && s.viewSettings.gridSnap !== false}
-        snapGrid={[s.viewSettings.gridSize || 20, s.viewSettings.gridSize || 20]}
+        snapGrid={[s.viewSettings.gridSnapSize || s.viewSettings.gridSize || 20, s.viewSettings.gridSnapSize || s.viewSettings.gridSize || 20]}
       >
-        <Background color={themeColors.canvasDot} bgColor="transparent"
+        <Background color={hexAlpha(themeColors.canvasDot, themeColors.gridAlpha ?? 1)} bgColor="transparent"
           variant="dots" size={s.viewSettings.gridEnabled ? 1.6 : 1}
           gap={s.viewSettings.gridEnabled ? (s.viewSettings.gridSize || 20) : 22} />
         <Controls />
