@@ -846,21 +846,35 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
   border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 12px;
   box-shadow: 0 16px 44px rgba(0,0,0,.5); max-height: 72vh; height: auto;
 }
-.palette.floating .drag-grip { padding: 2px 4px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.palette.floating .drag-grip { padding: 2px 4px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; flex-basis: 100%; }
+/* resized floating palette: tiles reflow into a grid that fills the card */
+.palette.floating { flex-direction: row; flex-wrap: wrap; align-content: flex-start; overflow-y: auto; }
+.palette.floating .tpl { width: 148px; flex-grow: 1; max-width: 200px; }
+.resize-grip {
+  position: absolute; right: 1px; bottom: 1px; width: 16px; height: 16px;
+  cursor: nwse-resize; z-index: 5; border-radius: 3px;
+  background:
+    linear-gradient(135deg, transparent 0 50%, color-mix(in srgb, var(--accent) 70%, transparent) 50% 58%, transparent 58% 70%, color-mix(in srgb, var(--accent) 70%, transparent) 70% 78%, transparent 78%);
+}
+.resize-grip:hover { background-color: color-mix(in srgb, var(--accent) 18%, transparent); }
+.canvas-toolbar.floating { position: absolute; }
 
 /* compact toolbar: icon-only buttons that animate open to reveal their text on
    hover / focus / press-hold (touch) */
 .canvas-toolbar.compact .btn.small {
   max-width: 37px; overflow: hidden; white-space: nowrap; text-overflow: clip;
-  transition: max-width .28s ease;
 }
-.canvas-toolbar.compact .btn.small:hover, .canvas-toolbar.compact .btn.small:focus-visible, .canvas-toolbar.compact .btn.small:active { max-width: 240px; }
 .canvas-toolbar.compact input[placeholder="Rename + Enter"] { display: none; }
 .canvas-toolbar.compact select { max-width: 118px; }
-.canvas-toolbar.compact label.toggle {
-  max-width: 36px; overflow: hidden; white-space: nowrap; transition: max-width .28s ease;
+.canvas-toolbar.compact label.toggle { max-width: 36px; overflow: hidden; white-space: nowrap; }
+/* compact hover: a fly-under label names the action (like the palette rail) */
+.tb-tip {
+  position: fixed; transform: translateX(-50%); z-index: 96; pointer-events: none;
+  background: var(--panel); backdrop-filter: blur(10px);
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 8px; padding: 4px 11px; font-size: 12px; white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(0,0,0,.45);
 }
-.canvas-toolbar.compact label.toggle:hover, .canvas-toolbar.compact label.toggle:active { max-width: 240px; }
 
 /* compact palette: icon rail; hovering (or press-holding) a tile flies out its label */
 .palette.compact { width: 58px; padding: 10px 7px; overflow: visible; position: relative; z-index: 60; }

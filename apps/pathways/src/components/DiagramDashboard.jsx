@@ -126,6 +126,24 @@ const startBarDrag = (el) => (e) => {
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', up)
 }
+// resize a floating bar from its ◢ corner grip: drag updates stored width/height
+const startBarResize = (el, node) => (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+  const rect = node()?.getBoundingClientRect()
+  if (!rect) return
+  const start = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height }
+  const move = (ev) => {
+    const s2 = useStore.getState()
+    const wl = s2.viewSettings.workspaceLayout || {}
+    const w = Math.min(window.innerWidth - 40, Math.max(el === 'toolbar' ? 230 : 150, start.w + ev.clientX - start.x))
+    const h = Math.min(window.innerHeight - 80, Math.max(140, start.h + ev.clientY - start.y))
+    s2.setViewSetting('workspaceLayout', { ...wl, [el]: { ...(wl[el] || {}), w, ...(el === 'palette' ? { h } : {}) } })
+  }
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
 // defaults: node palette starts compact; the main toolbar starts full (labels shown)
 export const barLayout = (wl, el, dx, dy) => ({ mode: 'fixed', compact: el === 'palette', x: dx, y: dy, ...((wl || {})[el] || {}) })
 
@@ -134,14 +152,18 @@ function Palette() {
   const wl = useStore((st) => st.viewSettings.workspaceLayout)
   const L = barLayout(wl, 'palette', 16, 130)
   const floating = L.mode === 'floating'
+  const selfRef = useRef(null)
   const onDragStart = (e, tpl) => {
     e.dataTransfer.setData('application/flowtest-node', JSON.stringify(tpl))
     e.dataTransfer.effectAllowed = 'move'
   }
   return (
-    <aside className={'palette' + (floating ? ' floating' : L.compact ? ' compact' : '')}
-      style={floating ? { position: 'absolute', left: L.x, top: L.y, zIndex: 45 } : undefined}>
+    <aside ref={selfRef} className={'palette' + (floating ? ' floating' : L.compact ? ' compact' : '')}
+      style={floating ? { position: 'absolute', left: L.x, top: L.y, zIndex: 45,
+        ...(L.w ? { width: L.w } : {}), ...(L.h ? { height: L.h, maxHeight: 'none' } : {}) } : undefined}>
       {floating && <div className="drag-grip" title="Drag to move the palette" onPointerDown={startBarDrag('palette')}>⠿ Node Templates</div>}
+      {floating && <span className="resize-grip" title="Drag to resize — tiles reflow to fit"
+        onPointerDown={startBarResize('palette', () => selfRef.current)} />}
       {!floating && <h3>Node Templates</h3>}
       {mergedTemplates(typeDefs).map((t) => (
         <div key={t.type} className="tpl" style={{ '--tpl-color': t.color, '--icon-ink': iconInk(t.color) }} draggable
@@ -1302,6 +1324,8 @@ function Canvas() {
   const canEdit = useStore((st) => st.session?.canEdit === true)
   // workspace chrome layout (fixed / floating / compact) for the toolbar
   const tbL = barLayout(s.viewSettings.workspaceLayout, 'toolbar', 10, 10)
+  const tbRef = useRef(null)
+  const [tbTip, setTbTip] = useState(null) // compact-mode hover label { x, y, text }
   // viewers never sit on an unshared workflow — snap to the first shared one
   useEffect(() => {
     if (!canEdit) {
@@ -1491,9 +1515,24 @@ function Canvas() {
   return (
     <div className={'canvas-wrap' + (s.brush ? ' brushing' : '')} ref={wheelRef}
       onClick={() => { setMenu(null); if (useStore.getState().wpMenu) useStore.setState({ wpMenu: null }) }}>
-      <div className={'canvas-toolbar' + (tbL.mode === 'floating' ? ' floating' : tbL.compact ? ' compact' : '')}
-        style={tbL.mode === 'floating' ? { left: tbL.x, top: tbL.y, maxWidth: 'none', zIndex: 40 } : undefined}>
+      <div ref={tbRef} className={'canvas-toolbar' + (tbL.mode === 'floating' ? ' floating' : tbL.compact ? ' compact' : '')}
+        style={tbL.mode === 'floating' ? { left: tbL.x, top: tbL.y, maxWidth: 'none', zIndex: 40, ...(tbL.w ? { width: tbL.w } : {}) } : undefined}
+        onMouseOver={tbL.mode !== 'floating' && tbL.compact ? (e) => {
+          // compact: icon-only buttons — a fly-under label names the hovered action
+          if (e.target.closest('.dropdown')) { setTbTip(null); return }
+          const b = e.target.closest('button, label.toggle')
+          if (b && tbRef.current?.contains(b)) {
+            const r = b.getBoundingClientRect()
+            const barR = tbRef.current.getBoundingClientRect()
+            const text = (b.textContent || '').trim() || b.title || ''
+            if (text) { setTbTip({ x: r.left + r.width / 2, y: barR.bottom + 6, text: text.length > 46 ? text.slice(0, 46) + '…' : text }); return }
+          }
+          setTbTip(null)
+        } : undefined}
+        onMouseLeave={() => setTbTip(null)}>
         {tbL.mode === 'floating' && <span className="drag-grip" title="Drag to move the toolbar" onPointerDown={startBarDrag('toolbar')}>⠿</span>}
+        {tbL.mode === 'floating' && <span className="resize-grip" title="Drag to resize — actions reflow to fit"
+          onPointerDown={startBarResize('toolbar', () => tbRef.current)} />}
         <select value={s.activeDiagramId || ''} onChange={(e) => s.setActiveDiagram(e.target.value)}>
           {(canEdit ? s.diagrams : s.diagrams.filter((d) => d.shared !== false)).map((d) => (
             <option key={d.id} value={d.id}>{d.name}{canEdit && d.shared === false ? ' 🔒' : ''}</option>
@@ -1612,6 +1651,9 @@ function Canvas() {
           onClick={() => s.endStepMapping()} title="Click when finished mapping">
           🎯 Mapping test step to the diagram — click nodes / connections to toggle ({stepIds.size} selected) · click here when done ✓
         </div>
+      )}
+      {tbTip && tbL.compact && tbL.mode !== 'floating' && (
+        <div className="tb-tip" style={{ left: tbTip.x, top: tbTip.y }}>{tbTip.text}</div>
       )}
       <TypeApplyToast />
       <RunSummaryModal />
