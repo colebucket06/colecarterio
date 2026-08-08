@@ -165,6 +165,28 @@ export function StickyNode({ id, data, selected }) {
   )
 }
 
+// swim lane: role-associated container; contents are positional (see laneContents)
+export function LaneNode({ data, selected }) {
+  const typeFmt = useStore((s) => s.typeFormats.lane)
+  const role = useStore((s) => s.workflowRoles.find((r) => r.id === data.roleId))
+  const { fmt, color } = effectiveStyle(data, { color: '#0ea5e9' }, typeFmt)
+  const vars = { '--lane-color': fmt ? (fmt.bg?.color || color) : color, '--lane-op': data.opacity ?? 0.1 }
+  if (fmt?.text) vars['--lane-text'] = fmt.text
+  return (
+    <div className={'lane-node' + (selected ? ' selected' : '') + (data.__ghost ? ' ghost' : '')} style={vars}>
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={120} lineStyle={{ borderColor: color }} handleStyle={{ background: color }} />
+      <div className="lane-band" title={role ? `Workflow role: ${role.name}` : 'No workflow role assigned — set one in the lane properties'}>
+        <span className="lane-title">{data.label}</span>
+        {role && <span className="lane-role">👤 {role.name}</span>}
+      </div>
+      {(data.attrs || []).filter((a) => a.k || a.v).length > 0 && (
+        <span className="lane-attrs" title={data.attrs.filter((a) => a.k || a.v).map((a) => `${a.k}: ${a.v}`).join('\n')}>
+          {data.attrs.filter((a) => a.k || a.v).length} attr</span>
+      )}
+    </div>
+  )
+}
+
 export function SectionNode({ data, selected }) {
   const typeFmt = useStore((s) => s.typeFormats.section)
   const { fmt, color } = effectiveStyle(data, { color: '#4f7cff' }, typeFmt)

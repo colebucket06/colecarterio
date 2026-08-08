@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow } from '@xyflow/react'
-import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, stepsLinkedTo, indicatorsFor, mergedTemplates, mergedTemplate, suggestCfg } from '../store'
-import FlowNode, { SectionNode, StickyNode, iconInk } from './FlowNode'
+import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, stepsLinkedTo, indicatorsFor, mergedTemplates, mergedTemplate, suggestCfg, laneContents } from '../store'
+import FlowNode, { SectionNode, StickyNode, LaneNode, iconInk } from './FlowNode'
 import { useSmartMenuPos } from './menuPos'
 import { RunSummaryModal, sevColor } from './Bugs'
 import MaximoWizard from './MaximoWizard'
@@ -99,7 +99,7 @@ import { resolveTheme, applyExportTheme } from '../utils/theme'
 import { exportDiagramPNG, exportDiagramSVG, exportDiagramPDF, exportDrawio, exportVsdx, exportMermaid } from '../utils/diagramExport'
 
 const COLORS = ['#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#ef4444', '#f59e0b', '#fb923c', '#22c55e', '#14b8a6', '#7fffd4', '#f1f5f9', '#64748b', '#4f7cff']
-const nodeTypes = { flow: FlowNode, section: SectionNode, sticky: StickyNode }
+const nodeTypes = { flow: FlowNode, section: SectionNode, sticky: StickyNode, lane: LaneNode }
 const STICKY_COLORS = ['#fde047', '#fdba74', '#fca5a5', '#86efac', '#93c5fd', '#d8b4fe']
 
 // theme hex -> rgba string (used where SVG attributes can't take color-mix)
@@ -1342,6 +1342,80 @@ function EdgeLabelFormat({ edge }) {
   )
 }
 
+
+// ---- swim lane properties: workflow role association + containment relationships ----
+function LaneRoleField({ node }) {
+  const s = useStore()
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  return (
+    <div className="field"><label>Workflow Role</label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <select style={{ flex: 1 }} value={node.data.roleId || ''}
+          onChange={(e) => s.updateNodeData(node.id, { roleId: e.target.value || null }, 'Assigned workflow role to swim lane')}>
+          <option value="">— no role assigned —</option>
+          {s.workflowRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <button className="btn small" title="Create a new workflow role" onClick={() => setAdding(!adding)}>＋</button>
+      </div>
+      {adding && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <input autoFocus style={{ flex: 1 }} placeholder="Role name — e.g. MOC Coordinator" value={name} list="pw-terms"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) { const r = s.addWorkflowRole(name); s.updateNodeData(node.id, { roleId: r.id }); setName(''); setAdding(false) } }} />
+          <button className="btn small primary" disabled={!name.trim()}
+            onClick={() => { const r = s.addWorkflowRole(name); s.updateNodeData(node.id, { roleId: r.id }); setName(''); setAdding(false) }}>✓</button>
+        </div>
+      )}
+      {s.workflowRoles.length > 0 && (
+        <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginTop: 4 }}>
+          Roles are project-wide — reuse them across lanes and diagrams.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LaneRelations({ node, diagram }) {
+  const s = useStore()
+  const { nodes, edges, ids } = laneContents(diagram, node.id)
+  const nodeName = (id) => diagram.nodes.find((n) => n.id === id)?.data.label || '?'
+  // testing data reflected from contained elements (never assigned to the lane itself)
+  const caseMap = new Map()
+  const stepRefs = []
+  ;[...ids, ...edges.map((e) => e.id)].forEach((elId) => {
+    casesLinkedTo(s.cases, s.activeDiagramId, elId).forEach((c) => caseMap.set(c.id, c))
+    stepsLinkedTo(s.cases, elId).forEach((x) => stepRefs.push(x))
+  })
+  const bugs = s.bugs.filter((b) => (b.targetIds || []).some((t) => ids.has(t)))
+  const atts = nodes.reduce((n2, x) => n2 + (x.data.attachments || []).length, 0)
+  return (
+    <div className="field"><label>Contained Elements & Testing Data</label>
+      <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+        Reflected from the nodes and paths inside the lane's boundaries — attachments and test links belong to those elements, not to the lane.
+      </div>
+      <div className="lane-rel">
+        <b>▢ Nodes ({nodes.length})</b>
+        {nodes.slice(0, 10).map((n) => <div className="rr" key={n.id}>{n.data.label}{(n.data.attachments || []).length ? ' 📎' : ''}</div>)}
+        {nodes.length > 10 && <div className="rr">… {nodes.length - 10} more</div>}
+        {nodes.length === 0 && <div className="rr" style={{ color: 'var(--text-dim)' }}>None inside yet — drag nodes into the lane.</div>}
+      </div>
+      <div className="lane-rel">
+        <b>↦ Paths ({edges.length})</b>
+        {edges.slice(0, 8).map((e) => <div className="rr" key={e.id}>{nodeName(e.source)} → {nodeName(e.target)}{e.label ? ` · "${e.label}"` : ''}</div>)}
+        {edges.length > 8 && <div className="rr">… {edges.length - 8} more</div>}
+        {edges.length === 0 && <div className="rr" style={{ color: 'var(--text-dim)' }}>No paths fully inside the lane.</div>}
+      </div>
+      <div className="lane-rel">
+        <b>🧪 Testing Data</b>
+        <div className="rr">🔗 {caseMap.size} Linked Case{caseMap.size === 1 ? '' : 's'} · 🎯 {stepRefs.length} Linked Step{stepRefs.length === 1 ? '' : 's'} · 🐞 {bugs.length} Bug{bugs.length === 1 ? '' : 's'} · 📎 {atts} Attachment{atts === 1 ? '' : 's'}</div>
+        {[...caseMap.values()].slice(0, 6).map((c) => <div className="rr" key={c.id}>🧪 {c.name}</div>)}
+        {stepRefs.slice(0, 6).map((x, i) => <div className="rr" key={i}>🎯 {x.caseName} · step {x.index + 1}</div>)}
+      </div>
+    </div>
+  )
+}
+
 function PropsPanel({ selection, onClose }) {
   const s = useStore()
   const diagram = s.diagrams.find((d) => d.id === s.activeDiagramId)
@@ -1349,12 +1423,14 @@ function PropsPanel({ selection, onClose }) {
   const edge = selection?.kind === 'edge' ? diagram?.edges.find((e) => e.id === selection.id) : null
   if (!node && !edge) return null
   const isSection = node?.type === 'section'
+  const isLane = node?.type === 'lane'
+  const isBackdrop = isSection || isLane
   const isSticky = node?.type === 'sticky'
   const linked = casesLinkedTo(s.cases, s.activeDiagramId, selection.id)
 
   return (
     <aside className="props-panel">
-      <h3>{isSticky ? '🗒 Workspace Comment' : isSection ? '▭ Section Properties' : node ? '⚙ Node Properties' : '↦ Connection Properties'}
+      <h3>{isSticky ? '🗒 Workspace Comment' : isLane ? '≋ Swim Lane Properties' : isSection ? '▭ Section Properties' : node ? '⚙ Node Properties' : '↦ Connection Properties'}
         <button className="btn small" style={{ marginLeft: 'auto' }} onClick={onClose}>✕</button></h3>
       {node && isSticky && (<>
         <div className="field"><label>Title</label>
@@ -1374,31 +1450,31 @@ function PropsPanel({ selection, onClose }) {
         <div className="field"><label>Name</label>
           <input value={node.data.label} onChange={(e) => s.updateNodeData(node.id, { label: e.target.value })}
             onBlur={(e) => s.updateNodeData(node.id, {}, `Renamed to "${e.target.value}"`)} /></div>
-        {!isSection && (
+        {!isBackdrop && (
           <div className="field"><label>Sequence Number</label>
             <input value={node.data.sequence} onChange={(e) => s.updateNodeData(node.id, { sequence: e.target.value })} /></div>
         )}
         <div className="field"><label>Description</label>
           <textarea rows={2} value={node.data.description} onChange={(e) => s.updateNodeData(node.id, { description: e.target.value })} /></div>
-        {!isSection && (
+        {!isBackdrop && (
           <div className="field"><label>Configuration Details</label>
             <textarea rows={3} value={node.data.config} placeholder={'key: value\nendpoint: ...'}
               onChange={(e) => s.updateNodeData(node.id, { config: e.target.value })} /></div>
         )}
-        {!isSection && (
+        {!isBackdrop && (
           <div className="field"><label>Shape</label>
             <select value={node.data.shape || 'rect'}
               onChange={(e) => { s.updateNodeData(node.id, { shape: e.target.value }, `Changed shape to ${e.target.value}`); s.setTypePrompt({ nodeId: node.id, aspect: 'shape' }) }}>
               {NODE_SHAPES.map((sh) => <option key={sh.key} value={sh.key}>{sh.label}</option>)}
             </select></div>
         )}
-        {!isSection && node.type === 'flow' && <SizeFields node={node} />}
-        {!isSection && (
+        {!isBackdrop && node.type === 'flow' && <SizeFields node={node} />}
+        {!isBackdrop && (
           <div className="field"><label>Text — size, alignment, word wrap</label>
             <TextFmtControls value={node.data.textFmt}
               onChange={(v) => { s.updateNodeData(node.id, { textFmt: Object.keys(v).length ? v : null }, 'Changed text formatting'); s.setTypePrompt({ nodeId: node.id, aspect: 'text' }) }} /></div>
         )}
-        {isSection && (
+        {isBackdrop && (
           <div className="field"><label>Backdrop opacity — {Math.round((node.data.opacity ?? 0.14) * 100)}%</label>
             <input type="range" min="4" max="60" value={Math.round((node.data.opacity ?? 0.14) * 100)}
               onChange={(e) => s.updateNodeData(node.id, { opacity: Number(e.target.value) / 100 })} /></div>
@@ -1428,12 +1504,18 @@ function PropsPanel({ selection, onClose }) {
           ))}
           <button className="btn small" onClick={() => s.updateNodeData(node.id, { attrs: [...(node.data.attrs || []), { k: '', v: '' }] }, 'Added custom attribute')}>＋ Add Attribute</button>
         </div>
-        {!isSection && (
+        {!isBackdrop && (
           <MetaEditor kind="node" values={node.data.meta || {}}
             onChange={(meta) => s.updateNodeData(node.id, { meta })} />
         )}
-        <AttachmentManager items={node.data.attachments || []} allowDiagramSnapshot
-          onChange={(items) => s.updateNodeData(node.id, { attachments: items }, 'Updated attachments')} />
+        {!isLane && (
+          <AttachmentManager items={node.data.attachments || []} allowDiagramSnapshot
+            onChange={(items) => s.updateNodeData(node.id, { attachments: items }, 'Updated attachments')} />
+        )}
+        {isLane && (<>
+          <LaneRoleField node={node} />
+          <LaneRelations node={node} diagram={diagram} />
+        </>)}
       </>)}
       {edge && (<>
         <div className="field"><label>Label</label>
@@ -1468,7 +1550,7 @@ function PropsPanel({ selection, onClose }) {
         <MetaEditor kind="edge" values={edge.data?.meta || {}}
           onChange={(meta) => s.updateEdge(edge.id, { data: { meta } })} />
       </>)}
-      {!isSection && !isSticky && (
+      {!isBackdrop && !isSticky && (
         <div className="field"><label>Linked Test Cases ({linked.length})</label>
           {linked.length === 0 && <div className="empty" style={{ padding: 6, textAlign: 'left' }}>None — link cases from the Test Management dashboard.</div>}
           {linked.map((c) => (
@@ -1787,10 +1869,11 @@ function Canvas() {
   // auto-connect proposal: one suggestion per missing input/output across the
   // diagram (works with zero paths or partial paths). Industry reading order —
   // left-to-right, top-to-bottom, start types first / end types last.
-  const buildAutoSuggestions = () => {
+  const buildAutoSuggestions = (scopeIds = null) => {
     const st0 = useStore.getState()
     const d = st0.diagrams.find((x) => x.id === st0.activeDiagramId)
-    const flow = (d?.nodes || []).filter((n) => n.type === 'flow')
+    const scopeSet = scopeIds ? new Set(scopeIds) : null
+    const flow = (d?.nodes || []).filter((n) => n.type === 'flow').filter((n) => !scopeSet || scopeSet.has(n.id))
     if (flow.length < 2) return
     const cfg = suggestCfg(st0.viewSettings)
     const rank = (n) => (n.data.nodeType === 'start' ? -1 : n.data.nodeType === 'end' ? 1 : 0)
@@ -1825,7 +1908,37 @@ function Canvas() {
       const prev = [...ordered.slice(0, i)].reverse().find((m) => m.id !== n.id) || ordered[i + 1]
       propose(prev?.id, n.id)
     })
-    if (items.length) setSuggest({ mode: 'auto', replaceEdgeId: null, items, checked: new Set(items.map((_, i) => i)) })
+    setSuggest({ mode: 'auto', replaceEdgeId: null, items, checked: new Set(items.map((_, i) => i)), scopeIds: scopeIds || null })
+  }
+
+  // shared scope control: entire workspace / a target swim lane / current selection
+  const ScopeBar = ({ current, onScope }) => {
+    const lanes = (diagram?.nodes || []).filter((n) => n.type === 'lane')
+    const selFlow = selectedIds.filter((sid) => diagram?.nodes.some((n) => n.id === sid && n.type === 'flow'))
+    const mode = current == null ? 'all' : current.laneId ? 'lane' : 'sel'
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Scope</span>
+        <span className="seg">
+          <button className={mode === 'all' ? 'on accent' : ''} title="Apply across the entire workspace"
+            onClick={() => onScope(null)}>All</button>
+          <button className={mode === 'sel' ? 'on accent' : ''} disabled={selFlow.length < 2}
+            title={selFlow.length < 2 ? 'Select two or more nodes first' : `Only the ${selFlow.length} selected nodes`}
+            onClick={() => onScope({ ids: selFlow })}>Selection ({selFlow.length})</button>
+        </span>
+        {lanes.length > 0 && (
+          <select value={mode === 'lane' ? current.laneId : ''} title="Limit to the nodes inside one swim lane"
+            onChange={(e) => {
+              const laneId = e.target.value
+              if (!laneId) return
+              onScope({ ids: [...laneContents(diagram, laneId).ids], laneId })
+            }}>
+            <option value="">≋ Swim Lane…</option>
+            {lanes.map((l) => <option key={l.id} value={l.id}>{l.data.label}</option>)}
+          </select>
+        )}
+      </div>
+    )
   }
 
   useEffect(() => {
@@ -1884,7 +1997,7 @@ function Canvas() {
           <button className="btn small" onClick={() => setFormatting(true)}
             title="Global formatting — style all elements of a node type, or the selected group">🎨<span className="tb-label"> Format</span></button>
           {ps.enabled && ps.autoConnect && Object.keys(missingPaths).length > 0 && diagram && diagram.nodes.filter((n) => n.type === 'flow').length >= 2 && (
-            <button className="btn small warn" onClick={buildAutoSuggestions}
+            <button className="btn small warn" onClick={() => buildAutoSuggestions()}
               title={`${Object.keys(missingPaths).length} node(s) missing input/output paths — suggest connections in standard workflow reading order (left-to-right, top-to-bottom, Start first / Stop last) and confirm each`}>
               ⚡<span className="tb-label"> Auto-Connect</span> ({Object.keys(missingPaths).length})</button>
           )}
@@ -1933,7 +2046,7 @@ function Canvas() {
           e.preventDefault(); setTip(null)
           if (!canEdit) return
           if (selectedIds.length > 1 && selectedIds.includes(n.id)) setMenu({ type: 'multi', ids: selectedIds, x: e.clientX, y: e.clientY, tryBrush })
-          else setMenu({ type: 'node', id: n.id, isSection: n.type === 'section' || n.type === 'sticky', x: e.clientX, y: e.clientY, select, tryBrush })
+          else setMenu({ type: 'node', id: n.id, isSection: n.type === 'section' || n.type === 'sticky' || n.type === 'lane', x: e.clientX, y: e.clientY, select, tryBrush })
         }}
         onEdgeContextMenu={(e, ed) => {
           if (!canEdit) { e.preventDefault(); return }
@@ -2116,7 +2229,15 @@ function Canvas() {
             <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 8 }}>
               One proposal per missing input/output, in standard workflow order (left-to-right, top-to-bottom, Start first / Stop last). Ghost paths preview on the canvas — untick a row to skip it, or change either end and the preview updates.
             </div>
+            <ScopeBar current={suggest.scopeDesc || null}
+              onScope={(sc) => { setSuggest(null); setTimeout(() => {
+                buildAutoSuggestions(sc?.ids || null)
+                if (sc) setSuggest((sg) => (sg ? { ...sg, scopeDesc: sc } : sg))
+              }, 0) }} />
             <div style={{ maxHeight: '46vh', overflowY: 'auto' }}>
+              {suggest.items.length === 0 && (
+                <div className="empty">No missing input/output paths in this scope — add a route manually below if needed.</div>
+              )}
               {suggest.items.map((it, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 0' }}>
                   <input type="checkbox" checked={suggest.checked.has(i)} onChange={() => toggleRow(i)} />
@@ -2168,8 +2289,13 @@ function Canvas() {
           <div className="auto-connect-panel" style={{ width: 'min(330px, calc(100vw - 40px))' }}>
             <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Proposed Layout{lp.attempt > 0 ? ` — attempt ${lp.attempt + 1}` : ''}</h3>
             <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>
-              Reading-order standard ({lp.params.rankdir === 'TB' ? 'top-to-bottom' : 'left-to-right, top-to-bottom'}) with consistent spacing and path lengths, keeping your general arrangement. Nothing moves until you apply.
+              Reading-order standard ({lp.params.rankdir === 'TB' ? 'top-to-bottom' : 'left-to-right, top-to-bottom'}) with consistent spacing and path lengths, keeping your general arrangement. Nothing moves until you apply{lp.params.scopeIds ? ` — scoped to ${lp.params.scopeIds.length} nodes; the rest stay put` : ''}.
             </div>
+            <ScopeBar current={lp.scopeDesc || (lp.params.scopeIds ? { ids: lp.params.scopeIds } : null)}
+              onScope={(sc) => {
+                const pr = s.proposeLayout({ ...lp.params, scopeIds: sc?.ids || null })
+                if (pr) s.setLayoutProposal({ ...pr, attempt: lp.attempt, feedback: lp.feedback, scopeDesc: sc || null })
+              }} />
             <svg width="296" height="162" style={{ display: 'block', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 8 }}>
               {diagram.edges.map((e) => {
                 const a = flow.find((n) => n.id === e.source), b = flow.find((n) => n.id === e.target)

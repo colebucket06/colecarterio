@@ -21,7 +21,23 @@ export const NODE_TEMPLATES = [
   { type: 'annotation', label: 'Note',       icon: '✎',  color: '#64748b', desc: 'Annotation / comment — not executable' },
   { type: 'sticky',     label: 'Comment',    icon: '🗒', color: '#fde047', desc: 'Post-It style workspace comment — pin free-floating notes anywhere on the canvas to annotate workflow paths; show/hide them all from 👁 View' },
   { type: 'section',    label: 'Section',    icon: '▭',  color: '#4f7cff', desc: 'Semi-transparent grouping backdrop with its own attribution' },
+  { type: 'lane',       label: 'Swim Lane',  icon: '≋',  color: '#0ea5e9', desc: 'Workflow swim lane — associate a workflow role; reflects the nodes, paths, and testing data inside its boundaries' },
 ]
+
+// ---- swim lanes: containment is positional — a lane reflects whatever sits inside it ----
+export const laneContains = (lane, n) => {
+  const lw = lane.style?.width || 900, lh = lane.style?.height || 220
+  const cx = n.position.x + ((n.width || 170) / 2), cy = n.position.y + ((n.height || 60) / 2)
+  return cx >= lane.position.x && cx <= lane.position.x + lw && cy >= lane.position.y && cy <= lane.position.y + lh
+}
+export const laneContents = (diagram, laneId) => {
+  const lane = diagram?.nodes.find((x) => x.id === laneId)
+  if (!lane) return { nodes: [], edges: [], ids: new Set() }
+  const nodes = diagram.nodes.filter((n) => n.type === 'flow' && laneContains(lane, n))
+  const ids = new Set(nodes.map((n) => n.id))
+  const edges = diagram.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+  return { nodes, edges, ids }
+}
 
 // steps (any case) that map a given diagram element
 export const stepsLinkedTo = (cases, elementId) =>
@@ -774,6 +790,23 @@ export const useStore = create((set, get) => ({
     get().log('diagram', 'edit-edge', `Connected ${items.length} suggested path${items.length === 1 ? '' : 's'}${replaceEdgeId ? ' (spliced into an existing path)' : ''}`)
   },
 
+  // ---- workflow roles: project-level roles associated to swim lanes ----
+  workflowRoles: [], // { id, name }
+  addWorkflowRole: (name) => {
+    const r = { id: uid('wr'), name: (name || '').trim() || 'New Role' }
+    set((s) => ({ workflowRoles: [...s.workflowRoles, r] }))
+    get().log('diagram', 'create', `Created workflow role "${r.name}"`)
+    return r
+  },
+  updateWorkflowRole: (id, name) => set((s) => ({ workflowRoles: s.workflowRoles.map((r) => (r.id === id ? { ...r, name } : r)) })),
+  deleteWorkflowRole: (id) => {
+    set((s) => ({
+      workflowRoles: s.workflowRoles.filter((r) => r.id !== id),
+      diagrams: s.diagrams.map((d) => ({ ...d, nodes: d.nodes.map((n) => (n.data?.roleId === id ? { ...n, data: { ...n.data, roleId: null } } : n)) })),
+    }))
+    get().log('diagram', 'delete', 'Deleted a workflow role')
+  },
+
   // ---- paintbrush (format painter): copy a node's formatting, apply to targets ----
   brush: null, // { sourceId, sourceType, sourceLabel, payload: { color, fmt, shape } }
   armBrush: (nodeId) => {
@@ -1127,9 +1160,13 @@ export const useStore = create((set, get) => ({
   addNode: (template, position) => {
     get().pushHistory(`Add ${template.label}`)
     const isSection = template.type === 'section'
+    const isLane = template.type === 'lane'
     const isSticky = template.type === 'sticky'
     const seq = String((get().activeDiagram()?.nodes.filter((n) => n.type === 'flow').length || 0) + 1)
-    const node = isSection
+    const node = isLane
+      ? { id: uid('lane'), type: 'lane', position, zIndex: -12, style: { width: 900, height: 220 },
+          data: { nodeType: 'lane', label: 'New Swim Lane', description: '', color: template.color, opacity: 0.1, roleId: null, attrs: [] } }
+      : isSection
       ? { id: uid('sec'), type: 'section', position, zIndex: -10, style: { width: 420, height: 300 },
           data: { nodeType: 'section', label: 'New Section', description: '', color: template.color, opacity: 0.14, attrs: [], attachments: [] } }
       : isSticky
@@ -1282,20 +1319,33 @@ export const useStore = create((set, get) => ({
     const g = new dagre.graphlib.Graph()
     g.setGraph({ rankdir, nodesep, ranksep, ...(align ? { align } : {}) })
     g.setDefaultEdgeLabel(() => ({}))
+    const scopeIds = params.scopeIds ? new Set(params.scopeIds) : null
     const flowNodes = d.nodes
-      .filter((n) => n.type !== 'section' && n.type !== 'sticky')
+      .filter((n) => n.type !== 'section' && n.type !== 'sticky' && n.type !== 'lane')
+      .filter((n) => !scopeIds || scopeIds.has(n.id))
       // insertion order = current reading order (L2R then T2B) so the user's
       // arrangement is assessed and preserved where the graph allows
       .sort((a, b) => (a.position.x - b.position.x) || (a.position.y - b.position.y))
+    if (flowNodes.length < 2) return null
+    g.setDefaultEdgeLabel(() => ({}))
     flowNodes.forEach((n) => g.setNode(n.id, { width: n.measured?.width || NODE_W, height: n.measured?.height || NODE_H }))
     d.edges.forEach((e) => { if (g.hasNode(e.source) && g.hasNode(e.target)) g.setEdge(e.source, e.target) })
     dagre.layout(g)
-    const positions = {}
+    const raw = {}
     flowNodes.forEach((n) => {
       const gn = g.node(n.id)
-      if (gn) positions[n.id] = { x: gn.x - gn.width / 2 + 60, y: gn.y - gn.height / 2 + 60 }
+      if (gn) raw[n.id] = { x: gn.x - gn.width / 2, y: gn.y - gn.height / 2 }
     })
-    return { positions, params: { ranksep, nodesep, rankdir, align } }
+    // anchor the result at the scope's current top-left so the region stays put
+    const curMinX = Math.min(...flowNodes.map((n) => n.position.x))
+    const curMinY = Math.min(...flowNodes.map((n) => n.position.y))
+    const prodMinX = Math.min(...Object.values(raw).map((p) => p.x))
+    const prodMinY = Math.min(...Object.values(raw).map((p) => p.y))
+    const positions = {}
+    Object.entries(raw).forEach(([id2, p2]) => {
+      positions[id2] = { x: p2.x - prodMinX + curMinX, y: p2.y - prodMinY + curMinY }
+    })
+    return { positions, params: { ranksep, nodesep, rankdir, align, scopeIds: params.scopeIds || null } }
   },
   layoutProposal: null, // { positions, params, attempt, feedback } — confirmation dialog state
   setLayoutProposal: (v) => set({ layoutProposal: v }),
@@ -1694,7 +1744,7 @@ export const useStore = create((set, get) => ({
   // snapshot of the ACTIVE project's data only (no platform-level state)
   snapshotProject: () => {
     const s = get()
-    return { project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs, issues: s.issues, pausedRuns: s.pausedRuns, pausedCaseExecs: s.pausedCaseExecs }
+    return { project: s.project, diagrams: s.diagrams, suites: s.suites, cases: s.cases, plans: s.plans, changeLog: s.changeLog, notifications: s.notifications, viewSettings: s.viewSettings, attrDefs: s.attrDefs, typeFormats: s.typeFormats, theme: s.theme, savedThemes: s.savedThemes, typeDefs: s.typeDefs, bugs: s.bugs, issues: s.issues, pausedRuns: s.pausedRuns, pausedCaseExecs: s.pausedCaseExecs, workflowRoles: s.workflowRoles }
   },
   // full platform export: active project + all stashed projects + global state
   exportProject: () => {
@@ -1718,6 +1768,7 @@ export const useStore = create((set, get) => ({
       typeDefs: obj.typeDefs || {},
       bugs: obj.bugs || [],
       issues: obj.issues || [], pausedRuns: obj.pausedRuns || [], pausedCaseExecs: obj.pausedCaseExecs || [], resumePartial: null,
+      workflowRoles: obj.workflowRoles || [],
       // the default saved theme (★) wins on open; otherwise restore the live theme as saved
       ...((() => {
         const def = (obj.savedThemes || []).find((t) => t.isDefault)
@@ -1758,7 +1809,7 @@ export const useStore = create((set, get) => ({
       project: { id: pid, name: (name || '').trim() || 'New Project', description: '', createdAt: now(), schemaVersion: 2,
         members: [{ id: uid('u'), name: me.name, email: me.email, role: 'owner' }] },
       diagrams: [d], activeDiagramId: d.id, suites: [], cases: [], plans: [], planRun: null, planPreview: null,
-      changeLog: [], notifications: [], typeFormats: {}, bugs: [], issues: [], pausedRuns: [], pausedCaseExecs: [], resumePartial: null,
+      changeLog: [], notifications: [], typeFormats: {}, bugs: [], issues: [], pausedRuns: [], pausedCaseExecs: [], resumePartial: null, workflowRoles: [],
     })
     get().refreshSessionPerms()
     get().cacheTerm(name)
