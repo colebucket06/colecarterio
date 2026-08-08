@@ -1351,6 +1351,10 @@ function Canvas() {
   const [maximo, setMaximo] = useState(false)
   const [importHub, setImportHub] = useState(false)
   const [delDiagram, setDelDiagram] = useState(false)
+  // suggested connection paths: ghost glowing edges + confirmation
+  // { mode: 'drop'|'splice', items: [{source,target}], replaceEdgeId, text }
+  // { mode: 'auto',  items, checked: Set(index) }
+  const [suggest, setSuggest] = useState(null)
   const [renDiagram, setRenDiagram] = useState(null) // string = editing value, null = closed
   const [formatting, setFormatting] = useState(false)
   const [brushConfirm, setBrushConfirm] = useState(null) // { ids, mismatched: [node] }
@@ -1476,8 +1480,15 @@ function Canvas() {
         if (cls === 'negative' && clsEnabled.negative !== false) return { ...base, style: { stroke: pathColors.negative || '#ef4444', strokeWidth: 2.2 } }
       }
       return base
-    }),
-    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled],
+    }).concat((suggest?.items || [])
+      .filter((_, i) => suggest.mode !== 'auto' || suggest.checked.has(i))
+      .map((it, i) => ({
+        id: 'sug-' + i, source: it.source, target: it.target,
+        sourceHandle: 'sr', targetHandle: 'tl', type: 'sep', className: 'suggest-edge',
+        style: { stroke: 'var(--accent-2)', strokeWidth: 2.6, strokeDasharray: '7 6' },
+        animated: true, label: '', data: { classification: 'default' }, selectable: false,
+      }))),
+    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled, suggest],
   )
 
   const select = useCallback((id) => setSelection({ kind: 'node', id }), [])
@@ -1492,6 +1503,52 @@ function Canvas() {
     })
   }, [])
 
+  useEffect(() => { setSuggest(null) }, [s.activeDiagramId])
+
+  const center = (n) => ({ x: n.position.x + (n.style?.width ? n.style.width / 2 : 95), y: n.position.y + (n.style?.height ? n.style.height / 2 : 32) })
+  const segDist = (p, a, b) => {
+    const abx = b.x - a.x, aby = b.y - a.y
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / (abx * abx + aby * aby || 1)))
+    return Math.hypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t))
+  }
+  // dropping a node: suggest a ghost path from the nearest node — or, when dropped
+  // onto an existing path, suggest splicing it in (input + output connections)
+  const buildDropSuggestion = (node, pos) => {
+    const d = useStore.getState().diagrams.find((x) => x.id === useStore.getState().activeDiagramId)
+    if (!d) return
+    const flow = d.nodes.filter((n) => n.type === 'flow' && n.id !== node.id)
+    if (!flow.length || node.type !== 'flow') return
+    const byId = Object.fromEntries(flow.map((n) => [n.id, n]))
+    // 1. dropped onto a path? (distance to the straight run between endpoints)
+    let onEdge = null, onEdgeDist = 30
+    for (const e of d.edges) {
+      const a = byId[e.source], b = byId[e.target]
+      if (!a || !b) continue
+      const dist = segDist(pos, center(a), center(b))
+      if (dist < onEdgeDist) { onEdge = e; onEdgeDist = dist }
+    }
+    if (onEdge) {
+      const a = byId[onEdge.source], b = byId[onEdge.target]
+      setSuggest({
+        mode: 'splice', replaceEdgeId: onEdge.id,
+        items: [{ source: onEdge.source, target: node.id }, { source: node.id, target: onEdge.target }],
+        text: `Insert "${node.data.label}" into the path ${a.data.label} → ${b.data.label}? The existing path is replaced by an input and an output connection.`,
+      })
+      return
+    }
+    // 2. otherwise: ghost path from the nearest node
+    let best = null, bestD = 800
+    for (const n of flow) {
+      const dist = Math.hypot(center(n).x - pos.x, center(n).y - pos.y)
+      if (dist < bestD) { best = n; bestD = dist }
+    }
+    if (best) setSuggest({
+      mode: 'drop', replaceEdgeId: null,
+      items: [{ source: best.id, target: node.id }],
+      text: `Connect "${best.data.label}" → "${node.data.label}"?`,
+    })
+  }
+
   const onDrop = useCallback((e) => {
     e.preventDefault()
     const raw = e.dataTransfer.getData('application/flowtest-node')
@@ -1500,7 +1557,22 @@ function Canvas() {
     const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
     const node = s.addNode(tpl, pos)
     setSelection({ kind: 'node', id: node.id })
-  }, [screenToFlowPosition, s])
+    buildDropSuggestion(node, pos)
+  }, [screenToFlowPosition, s]) // eslint-disable-line
+
+  // auto-connect proposal for a diagram with nodes but no paths yet:
+  // industry reading order — left-to-right, top-to-bottom — with start types
+  // first and end types last, chained sequentially
+  const buildAutoSuggestions = () => {
+    const d = useStore.getState().diagrams.find((x) => x.id === useStore.getState().activeDiagramId)
+    const flow = (d?.nodes || []).filter((n) => n.type === 'flow')
+    if (flow.length < 2) return
+    const rank = (n) => (n.data.nodeType === 'start' ? -1 : n.data.nodeType === 'end' ? 1 : 0)
+    const ordered = [...flow].sort((a, b) => rank(a) - rank(b)
+      || (center(a).x - center(b).x) || (center(a).y - center(b).y))
+    const items = ordered.slice(0, -1).map((n, i) => ({ source: n.id, target: ordered[i + 1].id }))
+    setSuggest({ mode: 'auto', replaceEdgeId: null, items, checked: new Set(items.map((_, i) => i)) })
+  }
 
   useEffect(() => {
     const onKey = (e) => {
@@ -1557,6 +1629,10 @@ function Canvas() {
           <UndoRedo />
           <button className="btn small" onClick={() => setFormatting(true)}
             title="Global formatting — style all elements of a node type, or the selected group">🎨<span className="tb-label"> Format</span></button>
+          {diagram && diagram.edges.length === 0 && diagram.nodes.filter((n) => n.type === 'flow').length >= 2 && (
+            <button className="btn small" onClick={buildAutoSuggestions}
+              title="No paths defined yet — suggest connections in standard workflow reading order (left-to-right, top-to-bottom, Start first / Stop last) and confirm each">⚡<span className="tb-label"> Auto-connect</span></button>
+          )}
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
           <ArrangeToolbar selectedIds={selectedIds} />
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
@@ -1661,6 +1737,46 @@ function Canvas() {
           🎯 Mapping test step to the diagram — click nodes / connections to toggle ({stepIds.size} selected) · click here when done ✓
         </div>
       )}
+      {suggest && suggest.mode !== 'auto' && (
+        <div className="brush-banner suggest-banner">
+          ✨ {suggest.text}
+          <button className="btn small primary" style={{ marginLeft: 10 }}
+            onClick={() => { s.applyPathSuggestions(suggest.items, suggest.replaceEdgeId); setSuggest(null) }}>
+            ✓ Connect{suggest.items.length > 1 ? ` (${suggest.items.length})` : ''}</button>
+          <button className="btn small" onClick={() => setSuggest(null)}>✕ Dismiss</button>
+        </div>
+      )}
+      {suggest && suggest.mode === 'auto' && (() => {
+        const name = (id) => diagram?.nodes.find((n) => n.id === id)?.data.label || '?'
+        const toggleRow = (i) => setSuggest((sg) => {
+          const c = new Set(sg.checked)
+          c.has(i) ? c.delete(i) : c.add(i)
+          return { ...sg, checked: c }
+        })
+        return (
+          <div className="auto-connect-panel">
+            <h3 style={{ margin: '0 0 6px', fontSize: 13.5 }}>⚡ Suggested connections</h3>
+            <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 8 }}>
+              Standard workflow order — left-to-right, top-to-bottom, Start first and Stop last. Ghost paths preview on the canvas; untick any you don't want.
+            </div>
+            <div style={{ maxHeight: '46vh', overflowY: 'auto' }}>
+              {suggest.items.map((it, i) => (
+                <label key={i} className="toggle" style={{ display: 'flex', padding: '3px 0', gap: 8 }}>
+                  <input type="checkbox" checked={suggest.checked.has(i)} onChange={() => toggleRow(i)} />
+                  <span style={{ fontSize: 12 }}>{name(it.source)} <span style={{ color: 'var(--accent-2)' }}>→</span> {name(it.target)}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              <button className="btn small primary" disabled={!suggest.checked.size}
+                onClick={() => { s.applyPathSuggestions(suggest.items.filter((_, i) => suggest.checked.has(i)), null); setSuggest(null) }}>
+                ✓ Confirm selected ({suggest.checked.size})</button>
+              <button className="btn small" onClick={() => { s.applyPathSuggestions(suggest.items, null); setSuggest(null) }}>⚡ Confirm all</button>
+              <button className="btn small" onClick={() => setSuggest(null)}>✕ Cancel</button>
+            </div>
+          </div>
+        )
+      })()}
       {tbTip && tbL.compact && tbL.mode !== 'floating' && (
         <div className="tb-tip" style={{ left: tbTip.x, top: tbTip.y }}>{tbTip.text}</div>
       )}

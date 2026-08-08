@@ -680,6 +680,24 @@ export const useStore = create((set, get) => ({
     diagrams: s.diagrams.map((d) => (d.id === s.activeDiagramId ? fn(d) : d)),
   })),
 
+  // accept suggested connection paths (optionally replacing a spliced path)
+  applyPathSuggestions: (items, replaceEdgeId) => {
+    if (!items.length) return
+    get().pushHistory('Accept suggested connections')
+    get().updateActive((d) => ({
+      ...d,
+      edges: [
+        ...d.edges.filter((e) => e.id !== replaceEdgeId),
+        ...items.map((it) => ({
+          id: uid('e'), source: it.source, target: it.target,
+          sourceHandle: 'sr', targetHandle: 'tl', label: '',
+          data: { condition: '', classification: 'default' },
+        })),
+      ],
+    }))
+    get().log('diagram', 'edit-edge', `Connected ${items.length} suggested path${items.length === 1 ? '' : 's'}${replaceEdgeId ? ' (spliced into an existing path)' : ''}`)
+  },
+
   // ---- paintbrush (format painter): copy a node's formatting, apply to targets ----
   brush: null, // { sourceId, sourceType, sourceLabel, payload: { color, fmt, shape } }
   armBrush: (nodeId) => {
