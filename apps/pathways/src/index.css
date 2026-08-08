@@ -975,3 +975,17 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
   0%, 100% { filter: drop-shadow(0 0 2px #ef4444); opacity: .6; }
   50%      { filter: drop-shadow(0 0 9px #ef4444); opacity: 1; }
 }
+
+/* ---- missing-path issue flags: themeable glow + ! badge ---- */
+.fnode.pathissue { filter: drop-shadow(0 0 5px var(--issue-glow)); animation: issuePulse 1.7s ease-in-out infinite; }
+@keyframes issuePulse {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--issue-glow)); }
+  50%      { filter: drop-shadow(0 0 9px var(--issue-glow)); }
+}
+.nissue {
+  position: absolute; top: -8px; left: -8px; z-index: 6;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--issue-glow); color: #201400;
+  font-size: 11px; font-weight: 900; line-height: 16px; text-align: center;
+  box-shadow: 0 0 7px var(--issue-glow); cursor: help;
+}

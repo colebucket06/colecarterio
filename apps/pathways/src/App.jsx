@@ -85,6 +85,55 @@ function NotifPanel({ onClose }) {
 }
 
 
+
+// global application settings: connection-path suggestion behavior + exemptions
+function GlobalSettings() {
+  const s = useStore()
+  const ps = { enabled: true, autoConnect: true, flags: true, noInput: ['start'], noOutput: ['end'], ...(s.viewSettings.pathSuggest || {}) }
+  const setPs = (patch) => s.setViewSetting('pathSuggest', { ...ps, ...patch })
+  const types = mergedTemplates(s.typeDefs).filter((t) => !['section', 'sticky'].includes(t.type))
+  const toggleType = (listKey, type) => {
+    const list = ps[listKey] || []
+    setPs({ [listKey]: list.includes(type) ? list.filter((x) => x !== type) : [...list, type] })
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Connection-path suggestions</div>
+      <label className="toggle" style={{ display: 'flex', marginBottom: 4 }}
+        title="Master switch — also toggleable from 💡 on the workflow toolbar">
+        <input type="checkbox" checked={ps.enabled} onChange={(e) => setPs({ enabled: e.target.checked })} />
+        Enable path suggestions (drop previews, splice dialogs)</label>
+      <label className="toggle" style={{ display: 'flex', marginBottom: 4, opacity: ps.enabled ? 1 : 0.45 }}>
+        <input type="checkbox" disabled={!ps.enabled} checked={ps.autoConnect} onChange={(e) => setPs({ autoConnect: e.target.checked })} />
+        ⚡ Auto-connect proposals for nodes missing paths</label>
+      <label className="toggle" style={{ display: 'flex', marginBottom: 8, opacity: ps.enabled ? 1 : 0.45 }}>
+        <input type="checkbox" disabled={!ps.enabled} checked={ps.flags} onChange={(e) => setPs({ flags: e.target.checked })} />
+        ⚠ Issue flag (!) and glow on nodes missing paths</label>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1, margin: '10px 0 4px' }}>Path requirement exemptions</div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+        Every node type is expected to have both an input and an output path unless exempted below (defaults: Start needs no input, Stop needs no output).
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px' }}>
+        <b style={{ fontSize: 11.5 }}>No input required</b>
+        <b style={{ fontSize: 11.5 }}>No output required</b>
+        {types.map((t) => (
+          <React.Fragment key={t.type}>
+            <label className="toggle" style={{ display: 'flex' }}>
+              <input type="checkbox" checked={(ps.noInput || []).includes(t.type)} onChange={() => toggleType('noInput', t.type)} />
+              {t.icon} {t.label}</label>
+            <label className="toggle" style={{ display: 'flex' }}>
+              <input type="checkbox" checked={(ps.noOutput || []).includes(t.type)} onChange={() => toggleType('noOutput', t.type)} />
+              {t.icon} {t.label}</label>
+          </React.Fragment>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 8 }}>
+        The issue glow color is themeable: 🎨 Appearance & Theme → Advanced → "Missing-path issue glow".
+      </div>
+    </div>
+  )
+}
+
 // workspace bars: fixed/floating + compact, configurable from the user profile
 function WorkspaceBars() {
   const s = useStore()
@@ -885,6 +934,11 @@ function ProfileModal({ onClose }) {
 
         <Fold title="📁 Projects" badge={<span className="tag project">{s.projectsHub.length + 1}</span>}>
           <ProjectsManager />
+        </Fold>
+
+        <Fold title="🌐 Global Settings"
+          badge={(() => { const ps = { enabled: true, ...(s.viewSettings.pathSuggest || {}) }; return <span className="tag project">suggestions {ps.enabled ? 'on' : 'off'}</span> })()}>
+          <GlobalSettings />
         </Fold>
 
         <Fold title="🧰 Workspace Bars"

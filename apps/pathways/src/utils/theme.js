@@ -11,16 +11,17 @@ export const THEME_KEYS = [
   { key: 'accent',    label: 'Accent',                var: '--accent' },
   { key: 'accent2',   label: 'Highlight accent',      var: '--accent-2' },
   { key: 'canvasDot', label: 'Canvas grid',           var: '--canvas-dot' },
+  { key: 'issueGlow', label: 'Missing-path issue glow', var: '--issue-glow' },
 ]
 
 export const THEME_DEFAULTS = {
   dark: {
     bg: '#0b1020', bg2: '#101731', bg3: '#17203f', panel: '#17203f', border: '#788cc8',
-    text: '#e6ebff', textDim: '#8b96c2', accent: '#4f7cff', accent2: '#22d3ee', canvasDot: '#2a3560', gridAlpha: 1,
+    text: '#e6ebff', textDim: '#8b96c2', accent: '#4f7cff', accent2: '#22d3ee', canvasDot: '#2a3560', gridAlpha: 1, issueGlow: '#f59e0b',
   },
   light: {
     bg: '#eef2fa', bg2: '#ffffff', bg3: '#dde5f4', panel: '#ffffff', border: '#46508c',
-    text: '#1c2440', textDim: '#5b6690', accent: '#4f7cff', accent2: '#0891b2', canvasDot: '#c6d0e8', gridAlpha: 1,
+    text: '#1c2440', textDim: '#5b6690', accent: '#4f7cff', accent2: '#0891b2', canvasDot: '#c6d0e8', gridAlpha: 1, issueGlow: '#d97706',
   },
 }
 

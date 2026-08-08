@@ -23,6 +23,9 @@ export const NODE_TEMPLATES = [
   { type: 'section',    label: 'Section',    icon: '▭',  color: '#4f7cff', desc: 'Semi-transparent grouping backdrop with its own attribution' },
 ]
 
+// path-suggestion configuration with defaults (start needs no input, end no output)
+export const suggestCfg = (vs) => ({ enabled: true, autoConnect: true, flags: true, noInput: ['start'], noOutput: ['end'], ...((vs || {}).pathSuggest || {}) })
+
 export const STATUS_OPTIONS = ['Pass', 'Fail', 'Partial Pass', 'Not Applicable', 'Blocked', 'Halted']
 
 // ---- cross-case step dependencies ----
@@ -190,6 +193,8 @@ export const useStore = create((set, get) => ({
     showEdgeLabels: true, showEdgeLogic: false, pathClassColors: true,
     // per-classification coloring: disable one class and it falls back to the default path color
     pathClassEnabled: { positive: true, negative: true },
+    // connection-path suggestions (all enabled by default; see Global Settings)
+    pathSuggest: { enabled: true, autoConnect: true, flags: true, noInput: ['start'], noOutput: ['end'] },
   },
   // ---- browser cache & cookies: opt-in credential remember + common-terms cache ----
   persistPrefs: persistLoad('prefs', { rememberLogin: false, cacheTerms: true }),

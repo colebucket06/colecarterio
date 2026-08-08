@@ -58,7 +58,7 @@ export default function FlowNode({ id, data, selected }) {
   // text formatting: per-node wins over the type's global text formatting
   const textFmt = data.textFmt || typeFmt?.textFmt || null
   const sized = !!(width || height)
-  const cls = ['fnode', 'fshape-' + shape, fmt ? 'custom' : '', sized ? 'sized' : '', selected ? 'selected' : '', data.__covered ? 'covered' : '', data.__run ? 'runhl' : '', data.__step ? 'stephl' : '', data.__preview ? 'previewhl' : '', data.__branch ? 'branchhl' : '', data.__ghost ? 'ghost' : '', !fmt && isLight(baseColor) ? 'light' : ''].join(' ')
+  const cls = ['fnode', 'fshape-' + shape, fmt ? 'custom' : '', sized ? 'sized' : '', selected ? 'selected' : '', data.__covered ? 'covered' : '', data.__run ? 'runhl' : '', data.__step ? 'stephl' : '', data.__preview ? 'previewhl' : '', data.__branch ? 'branchhl' : '', data.__ghost ? 'ghost' : '', data.__pathIssue ? 'pathissue' : '', !fmt && isLight(baseColor) ? 'light' : ''].join(' ')
   const hasAtt = (data.attachments || []).length > 0
   const styleVars = { '--node-color': baseColor, fontSize: `${(textFmt?.size || 12.5) * (vs.fontScale || 1)}px` }
   if (width) styleVars.width = '100%'
@@ -78,6 +78,9 @@ export default function FlowNode({ id, data, selected }) {
         keepAspectRatio={shape === 'square' || shape === 'circle'}
         onResizeEnd={() => setTypePrompt({ nodeId: id, aspect: 'size' })} />
       <div className="shape-bg" />
+      {data.__pathIssue && (
+        <span className="nissue" title={`Missing ${data.__pathIssue} — use ⚡ Auto-connect or draw the connection. Exemptions and flag settings live in Global Settings; glow color in the theme editor.`}>!</span>
+      )}
       {(data.__bugs || []).length > 0 && (
         <span className="nbug" title={data.__bugs.map((b) => `${b.seq} [${b.severity}] ${b.title}`).join('\n')}>
           🐞{data.__bugs.length > 1 ? <small>{data.__bugs.length}</small> : null}

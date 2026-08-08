@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow } from '@xyflow/react'
-import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, mergedTemplates, mergedTemplate } from '../store'
+import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, mergedTemplates, mergedTemplate, suggestCfg } from '../store'
 import FlowNode, { SectionNode, StickyNode, iconInk } from './FlowNode'
 import { useSmartMenuPos } from './menuPos'
 import { RunSummaryModal, sevColor } from './Bugs'
@@ -1448,6 +1448,24 @@ function Canvas() {
   const matchCount = (diagram?.nodes || []).length - ghostNodeIds.size
 
   const showComments = s.viewSettings.showComments !== false
+  // connection-path suggestion config + per-node missing input/output detection
+  const ps = suggestCfg(s.viewSettings)
+  const missingPaths = useMemo(() => {
+    const out = {}
+    if (!ps.enabled) return out
+    const eds = diagram?.edges || []
+    ;(diagram?.nodes || []).forEach((n) => {
+      if (n.type !== 'flow') return
+      const t = n.data.nodeType
+      const needIn = !(ps.noInput || []).includes(t)
+      const needOut = !(ps.noOutput || []).includes(t)
+      const hasIn = eds.some((e) => e.target === n.id)
+      const hasOut = eds.some((e) => e.source === n.id)
+      const missIn = needIn && !hasIn, missOut = needOut && !hasOut
+      if (missIn || missOut) out[n.id] = { missIn, missOut }
+    })
+    return out
+  }, [diagram, ps.enabled, ps.noInput, ps.noOutput])
   const nodes = useMemo(
     () => (diagram?.nodes || [])
       .filter((n) => showComments || n.type !== 'sticky')
@@ -1460,9 +1478,13 @@ function Canvas() {
         if (branchNodeIds.has(n.id)) extra.__branch = true
         if (ghostNodeIds.has(n.id)) extra.__ghost = true
         if (bugsByNode[n.id]) extra.__bugs = bugsByNode[n.id]
+        if (ps.flags && missingPaths[n.id]) {
+          const m = missingPaths[n.id]
+          extra.__pathIssue = m.missIn && m.missOut ? 'input & output paths' : m.missIn ? 'an input path' : 'an output path'
+        }
         return Object.keys(extra).length ? { ...n, data: { ...n.data, ...extra } } : n
       }),
-    [diagram, covered, runIds, stepIds, previewIds, branchNodeIds, ghostNodeIds, bugsByNode, showComments],
+    [diagram, covered, runIds, stepIds, previewIds, branchNodeIds, ghostNodeIds, bugsByNode, showComments, ps.flags, missingPaths],
   )
   const pathColors = s.viewSettings.pathColors || {}
   const classColors = s.viewSettings.pathClassColors !== false
@@ -1525,6 +1547,7 @@ function Canvas() {
   // dropping a node: suggest a ghost path from the nearest node — or, when dropped
   // onto an existing path, suggest splicing it in (input + output connections)
   const buildDropSuggestion = (node, pos) => {
+    if (!suggestCfg(useStore.getState().viewSettings).enabled) return
     const d = useStore.getState().diagrams.find((x) => x.id === useStore.getState().activeDiagramId)
     if (!d) return
     const flow = d.nodes.filter((n) => n.type === 'flow' && n.id !== node.id)
@@ -1572,18 +1595,48 @@ function Canvas() {
     buildDropSuggestion(node, pos)
   }, [screenToFlowPosition, s]) // eslint-disable-line
 
-  // auto-connect proposal for a diagram with nodes but no paths yet:
-  // industry reading order — left-to-right, top-to-bottom — with start types
-  // first and end types last, chained sequentially
+  // auto-connect proposal: one suggestion per missing input/output across the
+  // diagram (works with zero paths or partial paths). Industry reading order —
+  // left-to-right, top-to-bottom, start types first / end types last.
   const buildAutoSuggestions = () => {
-    const d = useStore.getState().diagrams.find((x) => x.id === useStore.getState().activeDiagramId)
+    const st0 = useStore.getState()
+    const d = st0.diagrams.find((x) => x.id === st0.activeDiagramId)
     const flow = (d?.nodes || []).filter((n) => n.type === 'flow')
     if (flow.length < 2) return
+    const cfg = suggestCfg(st0.viewSettings)
     const rank = (n) => (n.data.nodeType === 'start' ? -1 : n.data.nodeType === 'end' ? 1 : 0)
     const ordered = [...flow].sort((a, b) => rank(a) - rank(b)
       || (center(a).x - center(b).x) || (center(a).y - center(b).y))
-    const items = ordered.slice(0, -1).map((n, i) => ({ source: n.id, target: ordered[i + 1].id }))
-    setSuggest({ mode: 'auto', replaceEdgeId: null, items, checked: new Set(items.map((_, i) => i)) })
+    const idx = Object.fromEntries(ordered.map((n, i) => [n.id, i]))
+    const eds = d.edges
+    const has = (sId, tId) => eds.some((e) => e.source === sId && e.target === tId)
+    const hasIn = (n) => eds.some((e) => e.target === n.id)
+    const hasOut = (n) => eds.some((e) => e.source === n.id)
+    const needIn = (n) => !(cfg.noInput || []).includes(n.data.nodeType)
+    const needOut = (n) => !(cfg.noOutput || []).includes(n.data.nodeType)
+    const items = []
+    const propose = (sId, tId) => {
+      if (!sId || !tId || sId === tId) return false
+      if (has(sId, tId) || items.some((it) => it.source === sId && it.target === tId)) return false
+      items.push({ source: sId, target: tId })
+      return true
+    }
+    const willHaveOut = (n) => hasOut(n) || items.some((it) => it.source === n.id)
+    const willHaveIn = (n) => hasIn(n) || items.some((it) => it.target === n.id)
+    // outputs first: connect each output-less node to the next node in reading
+    // order that still wants an input (else simply the next node)
+    ordered.forEach((n, i) => {
+      if (!needOut(n) || willHaveOut(n)) return
+      const next = ordered.slice(i + 1).find((m) => needIn(m) && !willHaveIn(m)) || ordered[i + 1]
+      propose(n.id, next?.id)
+    })
+    // then any node still missing an input takes it from the previous node in order
+    ordered.forEach((n, i) => {
+      if (!needIn(n) || willHaveIn(n)) return
+      const prev = [...ordered.slice(0, i)].reverse().find((m) => m.id !== n.id) || ordered[i + 1]
+      propose(prev?.id, n.id)
+    })
+    if (items.length) setSuggest({ mode: 'auto', replaceEdgeId: null, items, checked: new Set(items.map((_, i) => i)) })
   }
 
   useEffect(() => {
@@ -1641,9 +1694,10 @@ function Canvas() {
           <UndoRedo />
           <button className="btn small" onClick={() => setFormatting(true)}
             title="Global formatting — style all elements of a node type, or the selected group">🎨<span className="tb-label"> Format</span></button>
-          {diagram && diagram.edges.length === 0 && diagram.nodes.filter((n) => n.type === 'flow').length >= 2 && (
-            <button className="btn small" onClick={buildAutoSuggestions}
-              title="No paths defined yet — suggest connections in standard workflow reading order (left-to-right, top-to-bottom, Start first / Stop last) and confirm each">⚡<span className="tb-label"> Auto-connect</span></button>
+          {ps.enabled && ps.autoConnect && Object.keys(missingPaths).length > 0 && diagram && diagram.nodes.filter((n) => n.type === 'flow').length >= 2 && (
+            <button className="btn small warn" onClick={buildAutoSuggestions}
+              title={`${Object.keys(missingPaths).length} node(s) missing input/output paths — suggest connections in standard workflow reading order (left-to-right, top-to-bottom, Start first / Stop last) and confirm each`}>
+              ⚡<span className="tb-label"> Auto-connect</span> ({Object.keys(missingPaths).length})</button>
           )}
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
           <ArrangeToolbar selectedIds={selectedIds} />
@@ -1661,6 +1715,10 @@ function Canvas() {
         )}
         <label className="toggle" title="Highlight elements covered by linked test cases"><input type="checkbox" checked={s.showCoverage} onChange={(e) => s.setShowCoverage(e.target.checked)} />
           🧪<span className="tb-label"> test coverage</span></label>
+        <label className="toggle" title="Path suggestions — ghost previews when dropping nodes, auto-connect proposals, and missing-path issue flags. Fine-tune in your profile's Global Settings.">
+          <input type="checkbox" checked={ps.enabled}
+            onChange={(e) => s.setViewSetting('pathSuggest', { ...ps, enabled: e.target.checked })} />
+          💡<span className="tb-label"> suggestions</span></label>
         {canEdit && diagram && (
           <label className="toggle" title="Share this workflow with the community — unshared workflows are hidden from viewers and community members">
             <input type="checkbox" checked={diagram.shared !== false} onChange={(e) => s.setDiagramShared(diagram.id, e.target.checked)} />
@@ -1840,24 +1898,35 @@ function Canvas() {
         )
       })()}
       {suggest && suggest.mode === 'auto' && (() => {
-        const name = (id) => diagram?.nodes.find((n) => n.id === id)?.data.label || '?'
+        const flowNodes = (diagram?.nodes || []).filter((n) => n.type === 'flow')
         const toggleRow = (i) => setSuggest((sg) => {
           const c = new Set(sg.checked)
           c.has(i) ? c.delete(i) : c.add(i)
           return { ...sg, checked: c }
         })
+        const retarget = (i, side, id) => setSuggest((sg) => ({
+          ...sg, items: sg.items.map((it, j) => (j === i ? { ...it, [side]: id } : it)),
+        }))
         return (
-          <div className="auto-connect-panel">
+          <div className="auto-connect-panel" style={{ width: 'min(340px, calc(100vw - 40px))' }}>
             <h3 style={{ margin: '0 0 6px', fontSize: 13.5 }}>⚡ Suggested connections</h3>
             <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 8 }}>
-              Standard workflow order — left-to-right, top-to-bottom, Start first and Stop last. Ghost paths preview on the canvas; untick any you don't want.
+              One proposal per missing input/output, in standard workflow order (left-to-right, top-to-bottom, Start first / Stop last). Ghost paths preview on the canvas — untick a row to skip it, or change either end and the preview updates.
             </div>
             <div style={{ maxHeight: '46vh', overflowY: 'auto' }}>
               {suggest.items.map((it, i) => (
-                <label key={i} className="toggle" style={{ display: 'flex', padding: '3px 0', gap: 8 }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 0' }}>
                   <input type="checkbox" checked={suggest.checked.has(i)} onChange={() => toggleRow(i)} />
-                  <span style={{ fontSize: 12 }}>{name(it.source)} <span style={{ color: 'var(--accent-2)' }}>→</span> {name(it.target)}</span>
-                </label>
+                  <select style={{ flex: 1, minWidth: 0, fontSize: 11.5, padding: '3px 5px' }} value={it.source}
+                    onChange={(e) => retarget(i, 'source', e.target.value)}>
+                    {flowNodes.filter((n) => n.id !== it.target).map((n) => <option key={n.id} value={n.id}>{n.data.label}</option>)}
+                  </select>
+                  <span style={{ color: 'var(--accent-2)', flexShrink: 0 }}>→</span>
+                  <select style={{ flex: 1, minWidth: 0, fontSize: 11.5, padding: '3px 5px' }} value={it.target}
+                    onChange={(e) => retarget(i, 'target', e.target.value)}>
+                    {flowNodes.filter((n) => n.id !== it.source).map((n) => <option key={n.id} value={n.id}>{n.data.label}</option>)}
+                  </select>
+                </div>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
