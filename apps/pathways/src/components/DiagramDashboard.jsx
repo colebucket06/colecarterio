@@ -74,7 +74,7 @@ function ImportHub({ onClose, openMaximo }) {
               value={mtext} onChange={(e) => setMtext(e.target.value)} />
             <button className="btn small primary" style={{ marginTop: 6 }} disabled={!mtext.trim()}
               onClick={() => { try { finish(parseMermaid(mtext), 'Mermaid import') } catch (e) { setErr(e?.message || String(e)) } }}>
-              ⇪ Import pasted text</button>
+              ⇪ Import Pasted Text</button>
           </>)}
           {err && <div className="field-err" style={{ marginTop: 8 }}>⚠ {err}</div>}
           <div className="foot"><button className="btn" onClick={() => { setMode(null); setErr(null) }}>← Back</button></div>
@@ -249,6 +249,111 @@ function Tooltip({ tip }) {
   )
 }
 
+
+// ---- element ↔ test link dialog: browse suites/cases/steps or review linked items ----
+function LinkDialog() {
+  const s = useStore()
+  const dlg = s.linkDialog
+  const [openCases, setOpenCases] = useState({}) // caseId → steps expanded
+  const [mini, setMini] = useState(null) // { x, y, caseId } — right-click mini menu
+  const [menuRef, miniStyle] = useSmartMenuPos(mini?.x || 0, mini?.y || 0)
+  if (!dlg) return null
+  const diagId = s.activeDiagramId
+  const d = s.diagrams.find((x) => x.id === diagId)
+  const el = d?.nodes.find((n) => n.id === dlg.elementId) || d?.edges.find((e) => e.id === dlg.elementId)
+  const elLabel = el?.data?.label || el?.label
+    || (el?.source ? `${d.nodes.find((n) => n.id === el.source)?.data.label} → ${d.nodes.find((n) => n.id === el.target)?.data.label}` : 'element')
+  const close = () => s.setLinkDialog(null)
+  const caseLinked = (c) => (c.links || []).some((l) => l.diagramId === diagId && l.targetIds.includes(dlg.elementId))
+  const stepLinked = (st) => (st.targetIds || []).includes(dlg.elementId)
+  const caseSummary = (c) => {
+    const last = (c.executions || []).find((x) => x.state !== 'deleted')
+    return `${c.objective || 'No objective set'} · ${c.steps.length} step${c.steps.length === 1 ? '' : 's'}${last ? ` · last run: ${last.overallStatus}` : ' · never executed'}`
+  }
+  const stepSummary = (st, i) => `Step ${i + 1}: ${st.action || '(no action)'} — expected: ${st.expected || '—'}`
+  const goToTM = (caseId) => {
+    useStore.setState({
+      linkNav: { elementId: dlg.elementId, elementLabel: elLabel, diagramId: diagId, caseId },
+      focusCaseId: caseId, page: 'tests', linkDialog: null,
+    })
+  }
+  const linkedCases = s.cases.filter(caseLinked)
+  const linkedSteps = s.cases.flatMap((c) => c.steps.filter(stepLinked).map((st) => ({ c, st, i: c.steps.indexOf(st) })))
+  return (
+    <div className="auto-connect-panel" style={{ width: 'min(340px, calc(100vw - 40px))' }}>
+      <h3 style={{ margin: '0 0 4px', fontSize: 13.5, display: 'flex', alignItems: 'center' }}>
+        🔗 Test Links — {String(elLabel).slice(0, 26)}
+        <button className="btn small" style={{ marginLeft: 'auto' }} onClick={close}>✕</button></h3>
+      <div className="seg" style={{ marginBottom: 8 }}>
+        <button className={dlg.tab !== 'browse' ? 'on accent' : ''} onClick={() => s.setLinkDialog({ ...dlg, tab: 'linked' })}>Linked ({linkedCases.length + linkedSteps.length})</button>
+        <button className={dlg.tab === 'browse' ? 'on accent' : ''} onClick={() => s.setLinkDialog({ ...dlg, tab: 'browse' })}>Browse All</button>
+      </div>
+      <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+        Hover an item for its summary · right-click it to open it in Test Management.
+      </div>
+      <div style={{ maxHeight: '46vh', overflowY: 'auto' }}>
+        {dlg.tab === 'browse' ? (
+          s.suites.length === 0 ? <div className="empty">No test suites yet — create them in Test Management.</div>
+          : s.suites.map((su) => (
+            <div key={su.id} style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{su.name}</div>
+              {su.caseIds.map((cid) => {
+                const c = s.cases.find((x) => x.id === cid)
+                if (!c) return null
+                return (
+                  <div key={c.id}>
+                    <div className="link-row" title={caseSummary(c)}
+                      onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
+                      <input type="checkbox" checked={caseLinked(c)} onChange={() => s.toggleCaseLink(c.id, diagId, dlg.elementId)} />
+                      <b style={{ flex: 1, fontSize: 12 }}>🧪 {c.name}</b>
+                      {c.steps.length > 0 && (
+                        <a style={{ cursor: 'pointer', fontSize: 11 }}
+                          onClick={() => setOpenCases({ ...openCases, [c.id]: !openCases[c.id] })}>{openCases[c.id] ? '▾ steps' : '▸ steps'}</a>
+                      )}
+                    </div>
+                    {openCases[c.id] && c.steps.map((st, i) => (
+                      <div className="link-row" key={st.id} style={{ paddingLeft: 22 }} title={stepSummary(st, i)}
+                        onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
+                        <input type="checkbox" checked={stepLinked(st)} onChange={() => s.toggleStepLink(c.id, st.id, dlg.elementId)} />
+                        <span style={{ flex: 1, fontSize: 11.5 }}>step {i + 1} · {(st.action || '(no action)').slice(0, 34)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          ))
+        ) : (<>
+          {linkedCases.length + linkedSteps.length === 0 && <div className="empty">Nothing linked to this element yet.</div>}
+          {linkedCases.map((c) => (
+            <div className="link-row" key={c.id} title={caseSummary(c)}
+              onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
+              <b style={{ flex: 1, fontSize: 12 }}>🧪 {c.name}</b>
+              <button className="btn small" title="Remove This Link" onClick={() => s.toggleCaseLink(c.id, diagId, dlg.elementId)}>✕</button>
+            </div>
+          ))}
+          {linkedSteps.map(({ c, st, i }) => (
+            <div className="link-row" key={st.id} title={stepSummary(st, i)}
+              onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
+              <span style={{ flex: 1, fontSize: 11.5 }}>🎯 {c.name} · step {i + 1}</span>
+              <button className="btn small" title="Remove This Link" onClick={() => s.toggleStepLink(c.id, st.id, dlg.elementId)}>✕</button>
+            </div>
+          ))}
+          <button className="btn small primary" style={{ marginTop: 6 }}
+            onClick={() => s.setLinkDialog({ ...dlg, tab: 'browse' })}>＋ Add New Link</button>
+        </>)}
+      </div>
+      {mini && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 94 }} onClick={() => setMini(null)} onContextMenu={(e) => { e.preventDefault(); setMini(null) }}>
+          <div className="ctx-menu" ref={menuRef} style={miniStyle} onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => { setMini(null); goToTM(mini.caseId) }}>👁 View in Test Management</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // context menu for a squared-path point: cut / copy / paste / relocate / delete
 function WpMenu() {
   const s = useStore()
@@ -346,7 +451,8 @@ function ContextMenu({ menu, close, openFormat }) {
         <button onClick={() => { s.copyNode(menu.id); s.pasteNodes(); close() }}>⧉ Duplicate</button>
         <button onClick={() => { menu.select(menu.id); close() }}>✎ Rename / Edit metadata</button>
         <button onClick={() => { menu.select(menu.id); close() }}>📎 Attachments…</button>
-        {!menu.isSection && <button onClick={() => viewLinked(menu.id)}>🧪 View linked test cases</button>}
+        {!menu.isSection && <button onClick={() => { useStore.setState({ linkDialog: { elementId: menu.id, tab: 'linked' } }); close() }}>🧪 View Linked Test Cases</button>}
+        {!menu.isSection && <button onClick={() => { useStore.setState({ linkDialog: { elementId: menu.id, tab: 'browse' } }); close() }}>🔗 Link to Test Case / Step…</button>}
         <button onClick={() => { isHidden ? s.unhideElements([menu.id]) : s.hideElements([menu.id]); close() }}>
           {isHidden ? '👁 Unhide' : '🙈 Hide (ghost outline)'}</button>
         <div className="sep" />
@@ -371,7 +477,8 @@ function ContextMenu({ menu, close, openFormat }) {
           <button disabled={!s.pointClipboard} onClick={() => { s.pasteEdgePoint(menu.id); close() }}>
             📍 Paste path point (same coordinates)</button>
         )}
-        <button onClick={() => viewLinked(menu.id)}>🧪 View linked test cases</button>
+        <button onClick={() => { useStore.setState({ linkDialog: { elementId: menu.id, tab: 'linked' } }); close() }}>🧪 View Linked Test Cases</button>
+        <button onClick={() => { useStore.setState({ linkDialog: { elementId: menu.id, tab: 'browse' } }); close() }}>🔗 Link to Test Case / Step…</button>
         <button onClick={() => { isHidden ? s.unhideElements([menu.id]) : s.hideElements([menu.id]); close() }}>
           {isHidden ? '👁 Unhide' : '🙈 Hide (ghost outline)'}</button>
         <div className="sep" />
@@ -398,7 +505,7 @@ function ArrangeToolbar({ selectedIds }) {
   return (
     <>
       <button className="btn small" onClick={() => { const pr = s.proposeLayout(); if (pr) s.setLayoutProposal({ ...pr, attempt: 0, feedback: '' }) }}
-        title="Automatic layered layout — reading-order standard (left-to-right, top-to-bottom). A preview dialog confirms before anything moves.">✨<span className="tb-label"> Auto layout</span></button>
+        title="Automatic layered layout — reading-order standard (left-to-right, top-to-bottom). A preview dialog confirms before anything moves.">✨<span className="tb-label"> Auto Layout</span></button>
       <span className="menu-wrap">
         <button className="btn small" onClick={() => toggle('align')} disabled={n < 2} title="Align selected nodes">⊞<span className="tb-label"> Align</span> ▾</button>
         {open === 'align' && (
@@ -435,18 +542,18 @@ function ViewMenu() {
   const setVs = useStore((s) => s.setViewSetting)
   const [open, setOpen] = useState(false)
   const TOGGLES = [
-    ['showIcons', 'Type icons'],
-    ['showSeq', 'Sequence numbers'],
-    ['showDesc', 'Description text'],
-    ['showConfig', 'Configuration details'],
-    ['showAttachments', 'Attachment badge'],
-    ['showAttrs', 'Custom attributes'],
+    ['showIcons', 'Type Icons'],
+    ['showSeq', 'Sequence Numbers'],
+    ['showDesc', 'Description Text'],
+    ['showConfig', 'Configuration Details'],
+    ['showAttachments', 'Attachment Badge'],
+    ['showAttrs', 'Custom Attributes'],
   ]
   // path attribution field types — labels, logic, classification coloring
   const PATH_TOGGLES = [
-    ['showEdgeLabels', 'Path labels', true, 'The label pill shown on each connection path'],
-    ['showEdgeLogic', 'Path logic under labels', false, 'Show the path condition / attribution (Action codes, TRUE-FALSE routes, Option numbers) beneath each label'],
-    ['pathClassColors', 'Classification colors', true, 'Color positive routes green and negative routes red — off renders every path in the neutral color'],
+    ['showEdgeLabels', 'Path Labels', true, 'The label pill shown on each connection path'],
+    ['showEdgeLogic', 'Path Logic Under Labels', false, 'Show the path condition / attribution (Action codes, TRUE-FALSE routes, Option numbers) beneath each label'],
+    ['pathClassColors', 'Classification Colors', true, 'Color positive routes green and negative routes red — off renders every path in the neutral color'],
   ]
   const pathVal = (k, def) => (vs[k] == null ? def : !!vs[k])
   const scale = vs.fontScale || 1
@@ -456,7 +563,7 @@ function ViewMenu() {
       <button className="btn small" onClick={() => setOpen(!open)} title="Adjust what nodes display and how large">👁<span className="tb-label"> View</span> ▾</button>
       {open && (
         <div className="dropdown" style={{ minWidth: 250 }} onMouseLeave={() => setOpen(false)}>
-          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace layout</div>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace Layout</div>
           {[['toolbar', 'Toolbar'], ['palette', 'Node palette']].map(([el, label]) => {
             const wl = vs.workspaceLayout || {}
             const L = { mode: 'fixed', compact: el === 'palette', ...(wl[el] || {}) }
@@ -477,21 +584,21 @@ function ViewMenu() {
             )
           })}
           <div className="sep" />
-          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Node fields</div>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Node Fields</div>
           {TOGGLES.map(([k, label]) => (
             <button key={k} onClick={() => setVs(k, !vs[k])}>
               <span style={{ width: 16 }}>{vs[k] ? '✓' : ''}</span>{label}
             </button>
           ))}
           <div className="sep" />
-          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path fields</div>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path Fields</div>
           {PATH_TOGGLES.map(([k, label, def, tip]) => (
             <button key={k} title={tip} onClick={() => setVs(k, !pathVal(k, def))}>
               <span style={{ width: 16 }}>{pathVal(k, def) ? '✓' : ''}</span>{label}
             </button>
           ))}
           <div className="sep" />
-          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Node font size</div>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Node Font Size</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 11px 8px' }}>
             <button className="btn small" onClick={() => setScale(scale - 0.1)} disabled={scale <= 0.8}>A−</button>
             <span style={{ flex: 1, textAlign: 'center', fontSize: 12 }}>{Math.round(scale * 100)}%</span>
@@ -499,9 +606,9 @@ function ViewMenu() {
             <button className="btn small" onClick={() => setScale(1)} title="Reset">↺</button>
           </div>
           <div className="sep" />
-          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace grid</div>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace Grid</div>
           <button onClick={() => setVs('gridEnabled', !vs.gridEnabled)}>
-            <span style={{ width: 16 }}>{vs.gridEnabled ? '✓' : ''}</span>⊞ Enable grid
+            <span style={{ width: 16 }}>{vs.gridEnabled ? '✓' : ''}</span>⊞ Enable Grid
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 11px', opacity: vs.gridEnabled ? 1 : 0.45 }}>
             <span style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>Spacing</span>
@@ -510,7 +617,7 @@ function ViewMenu() {
             <span style={{ fontSize: 11.5, width: 34, textAlign: 'right' }}>{vs.gridSize || 20}px</span>
           </div>
           <button disabled={!vs.gridEnabled} onClick={() => setVs('gridSnap', vs.gridSnap === false)}>
-            <span style={{ width: 16 }}>{vs.gridEnabled && vs.gridSnap !== false ? '✓' : ''}</span>🧲 Affix elements to grid
+            <span style={{ width: 16 }}>{vs.gridEnabled && vs.gridSnap !== false ? '✓' : ''}</span>🧲 Affix Elements to Grid
           </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 11px 8px', opacity: vs.gridEnabled && vs.gridSnap !== false ? 1 : 0.45 }}
             title="Snap positioning is independent of the visual grid — e.g. snap every 5px while the grid displays at 20px">
@@ -522,7 +629,7 @@ function ViewMenu() {
             <span style={{ fontSize: 11.5, width: 34, textAlign: 'right' }}>{vs.gridSnapSize || vs.gridSize || 20}px</span>
           </div>
           <div className="sep" />
-          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace comments</div>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Workspace Comments</div>
           <button onClick={() => setVs('showComments', vs.showComments === false)}>
             <span style={{ width: 16 }}>{vs.showComments !== false ? '✓' : ''}</span>🗒 Show Post-It comments
           </button>
@@ -538,10 +645,10 @@ function ViewMenu() {
             <span style={{ fontSize: 11.5, width: 34, textAlign: 'right' }}>{vs.edgePadding || 14}px</span>
           </div>
           <div className="sep" />
-          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path classification colors</div>
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path Classification Colors</div>
           <button title="Master switch — off renders every path in the default connection color, regardless of classification"
             onClick={() => setVs('pathClassColors', !(vs.pathClassColors !== false))}>
-            <span style={{ width: 16 }}>{vs.pathClassColors !== false ? '✓' : ''}</span>Color formatting enabled
+            <span style={{ width: 16 }}>{vs.pathClassColors !== false ? '✓' : ''}</span>Color Formatting Enabled
           </button>
           {['positive', 'negative'].map((k) => {
             const en = (vs.pathClassEnabled || {})[k] !== false
@@ -557,7 +664,7 @@ function ViewMenu() {
                   disabled={!master || !en}
                   value={(vs.pathColors || {})[k] || (k === 'positive' ? '#22c55e' : '#ef4444')}
                   onChange={(e) => setVs('pathColors', { ...(vs.pathColors || {}), [k]: e.target.value })} />
-                <span style={{ fontSize: 12.5, textTransform: 'capitalize', opacity: en ? 1 : 0.55 }}>{k} paths</span>
+                <span style={{ fontSize: 12.5, textTransform: 'capitalize', opacity: en ? 1 : 0.55 }}>{k === 'positive' ? 'Positive' : 'Negative'} Paths</span>
               </div>
             )
           })}
@@ -835,8 +942,10 @@ function FilterMenu({ matchCount, totalCount }) {
   const s = useStore()
   const [open, setOpen] = useState(false)
   const f = s.filter
-  const active = !!(f.text.trim() || f.types.length)
+  const active = !!(f.text.trim() || f.types.length || (f.pathCls || []).length)
   const toggleType = (t) => s.setFilter({ types: f.types.includes(t) ? f.types.filter((x) => x !== t) : [...f.types, t] })
+  const togglePathCls = (c) => s.setFilter({ pathCls: (f.pathCls || []).includes(c) ? f.pathCls.filter((x) => x !== c) : [...(f.pathCls || []), c] })
+  const PATH_CLS = [['default', 'Default Paths', 'var(--text-dim)'], ['positive', 'Positive Paths', '#4ade80'], ['negative', 'Negative Paths', '#f87171']]
   return (
     <span className="menu-wrap">
       <button className={'btn small' + (active ? ' primary' : '')} onClick={() => setOpen(!open)}
@@ -858,6 +967,15 @@ function FilterMenu({ matchCount, totalCount }) {
               </button>
             ))}
           </div>
+          <div className="sep" />
+          <div style={{ padding: '5px 11px', fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Path Classifications</div>
+          {PATH_CLS.map(([c, label, col]) => (
+            <button key={c} title={`Show only the selected classifications — unselected path types fade to ghost outlines`}
+              onClick={() => togglePathCls(c)}>
+              <span style={{ width: 16 }}>{(f.pathCls || []).includes(c) ? '✓' : ''}</span>
+              <span style={{ width: 14, height: 3, background: col, borderRadius: 2, marginRight: 6, display: 'inline-block' }} />{label}
+            </button>
+          ))}
           <div className="sep" />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 11px 8px' }}>
             <span style={{ fontSize: 11.5, color: active ? 'var(--accent-2)' : 'var(--text-dim)', flex: 1 }}>
@@ -1174,7 +1292,7 @@ function EdgeLabelFormat({ edge }) {
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button className="btn small" onClick={() => s.formatAllEdgeLabels({ ...ls })}
-            title="Apply this label formatting to every connection path in the diagram">⧉ Apply to all paths</button>
+            title="Apply this label formatting to every connection path in the diagram">⧉ Apply to All Paths</button>
           <button className="btn small" disabled={!Object.keys(ls).length}
             onClick={() => s.updateEdge(edge.id, { data: { labelStyle: null } }, 'Reset label formatting')}>✕ Reset</button>
         </div>
@@ -1208,7 +1326,7 @@ function PropsPanel({ selection, onClose }) {
             onChange={(c) => s.updateNodeData(node.id, { color: c, ownStyle: true }, 'Changed comment color')} /></div>
         <div style={{ fontSize: 11.5, color: 'var(--text-dim)', lineHeight: 1.5 }}>
           Post-It comments annotate the workspace itself — they are not part of the executable flow.
-          Show or hide all of them from 👁 View ▾ → Workspace comments.
+          Show or hide all of them from 👁 View ▾ → Workspace Comments.
         </div>
       </>)}
       {node && !isSticky && (<>
@@ -1267,7 +1385,7 @@ function PropsPanel({ selection, onClose }) {
               <button className="btn small" onClick={() => s.updateNodeData(node.id, { attrs: node.data.attrs.filter((_, j) => j !== i) })}>✕</button>
             </div>
           ))}
-          <button className="btn small" onClick={() => s.updateNodeData(node.id, { attrs: [...(node.data.attrs || []), { k: '', v: '' }] }, 'Added custom attribute')}>＋ Add attribute</button>
+          <button className="btn small" onClick={() => s.updateNodeData(node.id, { attrs: [...(node.data.attrs || []), { k: '', v: '' }] }, 'Added custom attribute')}>＋ Add Attribute</button>
         </div>
         {!isSection && (
           <MetaEditor kind="node" values={node.data.meta || {}}
@@ -1295,14 +1413,14 @@ function PropsPanel({ selection, onClose }) {
           </div></div>
         <div className="field"><label>Animated</label>
           <label className="toggle"><input type="checkbox" checked={!!edge.animated}
-            onChange={(e) => s.updateEdge(edge.id, { animated: e.target.checked })} /> show flow animation</label></div>
+            onChange={(e) => s.updateEdge(edge.id, { animated: e.target.checked })} /> Show Flow Animation</label></div>
         {(diagram?.pathStyle || 'auto') === 'squared' && (
           <div className="field"><label>Manual Path Points ({(edge.data?.points || []).length})</label>
             <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 5 }}>
               Double-click this connection on the canvas to add a point. With the connection selected, drag a point to reroute around other nodes; right-click a point to remove it.
             </div>
             {(edge.data?.points || []).length > 0 && (
-              <button className="btn small" onClick={() => s.clearEdgePoints(edge.id)}>✕ Clear all path points</button>
+              <button className="btn small" onClick={() => s.clearEdgePoints(edge.id)}>✕ Clear All Path Points</button>
             )}
           </div>
         )}
@@ -1518,8 +1636,11 @@ function Canvas() {
       if (suggest?.mode === 'splice' && e.id === suggest.replaceEdgeId)
         return { ...base, className: 'suggest-remove', animated: true,
           style: { stroke: '#ef4444', strokeWidth: 2.8, strokeDasharray: '5 5' } }
-      // Ghost precedence: hidden connections, or connections touching a ghosted node
-      if (hiddenSet.has(e.id) || ghostNodeIds.has(e.source) || ghostNodeIds.has(e.target))
+      // Ghost precedence: hidden connections, connections touching a ghosted node,
+      // or classifications excluded by the path filter
+      const pathClsFilter = s.filter.pathCls || []
+      if (hiddenSet.has(e.id) || ghostNodeIds.has(e.source) || ghostNodeIds.has(e.target)
+        || (pathClsFilter.length && !pathClsFilter.includes(e.data?.classification || 'default')))
         return { ...base, style: { stroke: 'rgba(122,143,196,0.3)', strokeWidth: 1.5, strokeDasharray: '6 5' }, animated: false, label: '' }
       // Highlight precedence: current step > live run > preview > coverage > classification color
       if (stepIds.has(e.id))
@@ -1543,7 +1664,7 @@ function Canvas() {
         style: { stroke: 'var(--accent-2)', strokeWidth: 2.6, strokeDasharray: '7 6' },
         animated: true, label: '', data: { classification: 'default' }, selectable: false,
       }))),
-    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled, suggest, sugItems], // eslint-disable-line
+    [diagram, covered, runIds, stepIds, previewIds, pathColors, hiddenSet, ghostNodeIds, classColors, clsEnabled, suggest, sugItems, s.filter.pathCls], // eslint-disable-line
   )
 
   const select = useCallback((id) => setSelection({ kind: 'node', id }), [])
@@ -1719,7 +1840,7 @@ function Canvas() {
           {ps.enabled && ps.autoConnect && Object.keys(missingPaths).length > 0 && diagram && diagram.nodes.filter((n) => n.type === 'flow').length >= 2 && (
             <button className="btn small warn" onClick={buildAutoSuggestions}
               title={`${Object.keys(missingPaths).length} node(s) missing input/output paths — suggest connections in standard workflow reading order (left-to-right, top-to-bottom, Start first / Stop last) and confirm each`}>
-              ⚡<span className="tb-label"> Auto-connect</span> ({Object.keys(missingPaths).length})</button>
+              ⚡<span className="tb-label"> Auto-Connect</span> ({Object.keys(missingPaths).length})</button>
           )}
           <span style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)' }} />
           <ArrangeToolbar selectedIds={selectedIds} />
@@ -1736,15 +1857,15 @@ function Canvas() {
             title="Import — IBM Maximo workflow tables, draw.io/Lucidchart XML, Mermaid flowcharts, or a Pathways project file">⇪<span className="tb-label"> Import</span></button>
         )}
         <label className="toggle" title="Highlight elements covered by linked test cases"><input type="checkbox" checked={s.showCoverage} onChange={(e) => s.setShowCoverage(e.target.checked)} />
-          🧪<span className="tb-label"> test coverage</span></label>
+          🧪<span className="tb-label"> Test Coverage</span></label>
         <label className="toggle" title="Path suggestions — ghost previews when dropping nodes, auto-connect proposals, and missing-path issue flags. Fine-tune in your profile's Global Settings.">
           <input type="checkbox" checked={ps.enabled}
             onChange={(e) => s.setViewSetting('pathSuggest', { ...ps, enabled: e.target.checked })} />
-          💡<span className="tb-label"> suggestions</span></label>
+          💡<span className="tb-label"> Suggestions</span></label>
         {canEdit && diagram && (
           <label className="toggle" title="Share this workflow with the community — unshared workflows are hidden from viewers and community members">
             <input type="checkbox" checked={diagram.shared !== false} onChange={(e) => s.setDiagramShared(diagram.id, e.target.checked)} />
-            🌐<span className="tb-label"> shared</span></label>
+            🌐<span className="tb-label"> Shared</span></label>
         )}
       </div>
       <ReactFlow
@@ -1897,18 +2018,18 @@ function Canvas() {
         const cancel = () => { setSuggest(null); s.undo() }
         return (
           <div className="auto-connect-panel splice-panel">
-            <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Node dropped on a path</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Node Dropped on a Path</h3>
             <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 10 }}>
               "<b>{nLabel}</b>" landed on <b>{aLabel}</b> → <b>{bLabel}</b>. The glowing paths preview the new connections; the red path is the one Option 2 removes.
             </div>
             <div className="splice-opt" onClick={() => choose(false)}>
               <Pic broken={false} />
-              <div><b>1 · Add node & new paths</b>
+              <div><b>1 · Add Node & New Paths</b>
                 <div>Keep the existing {aLabel} → {bLabel} path and add both new connections: {aLabel} → {nLabel} and {nLabel} → {bLabel}.</div></div>
             </div>
             <div className="splice-opt" onClick={() => choose(true)}>
               <Pic broken />
-              <div><b>2 · Break existing path</b>
+              <div><b>2 · Break Existing Path</b>
                 <div>Remove {aLabel} → {bLabel} and replace it with the two new connections: {aLabel} → {nLabel} and {nLabel} → {bLabel}.</div></div>
             </div>
             <div className="splice-opt cancel" onClick={cancel}>
@@ -1929,9 +2050,23 @@ function Canvas() {
         const retarget = (i, side, id) => setSuggest((sg) => ({
           ...sg, items: sg.items.map((it, j) => (j === i ? { ...it, [side]: id } : it)),
         }))
+        // move a row up/down — order controls when each connection is made
+        const move = (i, dir) => setSuggest((sg) => {
+          const j = i + dir
+          if (j < 0 || j >= sg.items.length) return sg
+          const items = [...sg.items]
+          ;[items[i], items[j]] = [items[j], items[i]]
+          const checked = new Set([...sg.checked].map((k) => (k === i ? j : k === j ? i : k)))
+          return { ...sg, items, checked }
+        })
+        const addRoute = () => setSuggest((sg) => ({
+          ...sg,
+          items: [...sg.items, { source: flowNodes[0]?.id, target: flowNodes[1]?.id }],
+          checked: new Set([...sg.checked, sg.items.length]),
+        }))
         return (
           <div className="auto-connect-panel" style={{ width: 'min(340px, calc(100vw - 40px))' }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 13.5 }}>⚡ Suggested connections</h3>
+            <h3 style={{ margin: '0 0 6px', fontSize: 13.5 }}>⚡ Suggested Connections</h3>
             <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 8 }}>
               One proposal per missing input/output, in standard workflow order (left-to-right, top-to-bottom, Start first / Stop last). Ghost paths preview on the canvas — untick a row to skip it, or change either end and the preview updates.
             </div>
@@ -1948,14 +2083,21 @@ function Canvas() {
                     onChange={(e) => retarget(i, 'target', e.target.value)}>
                     {flowNodes.filter((n) => n.id !== it.source).map((n) => <option key={n.id} value={n.id}>{n.data.label}</option>)}
                   </select>
+                  <span style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+                    <button className="mini-move" disabled={i === 0} title="Move Up — this connection is made earlier" onClick={() => move(i, -1)}>▲</button>
+                    <button className="mini-move" disabled={i === suggest.items.length - 1} title="Move Down — this connection is made later" onClick={() => move(i, 1)}>▼</button>
+                  </span>
                 </div>
               ))}
             </div>
+            <button className="btn small" style={{ marginTop: 6 }} disabled={flowNodes.length < 2}
+              title="Add another route to the proposal — pick its ends, then position it with ▲▼"
+              onClick={addRoute}>＋ Add Route</button>
             <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
               <button className="btn small primary" disabled={!suggest.checked.size}
                 onClick={() => { s.applyPathSuggestions(suggest.items.filter((_, i) => suggest.checked.has(i)), null); setSuggest(null) }}>
                 ✓ Confirm selected ({suggest.checked.size})</button>
-              <button className="btn small" onClick={() => { s.applyPathSuggestions(suggest.items, null); setSuggest(null) }}>⚡ Confirm all</button>
+              <button className="btn small" onClick={() => { s.applyPathSuggestions(suggest.items, null); setSuggest(null) }}>⚡ Confirm All</button>
               <button className="btn small" onClick={() => setSuggest(null)}>✕ Cancel</button>
             </div>
           </div>
@@ -1978,7 +2120,7 @@ function Canvas() {
         }
         return (
           <div className="auto-connect-panel" style={{ width: 'min(330px, calc(100vw - 40px))' }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Proposed layout{lp.attempt > 0 ? ` — attempt ${lp.attempt + 1}` : ''}</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: 13.5 }}>✨ Proposed Layout{lp.attempt > 0 ? ` — attempt ${lp.attempt + 1}` : ''}</h3>
             <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 6 }}>
               Reading-order standard ({lp.params.rankdir === 'TB' ? 'top-to-bottom' : 'left-to-right, top-to-bottom'}) with consistent spacing and path lengths, keeping your general arrangement. Nothing moves until you apply.
             </div>
@@ -1999,9 +2141,9 @@ function Canvas() {
               onChange={(e) => s.setLayoutProposal({ ...lp, feedback: e.target.value })} />
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               <button className="btn small primary"
-                onClick={() => { s.applyLayoutPositions(lp.positions); s.setLayoutProposal(null) }}>✓ Apply layout</button>
+                onClick={() => { s.applyLayoutPositions(lp.positions); s.setLayoutProposal(null) }}>✓ Apply Layout</button>
               <button className="btn small" title="Generate a different proposal — your note above steers the adjustment"
-                onClick={retry}>↻ Try another</button>
+                onClick={retry}>↻ Try Another</button>
               <button className="btn small" onClick={() => s.setLayoutProposal(null)}>✕ Cancel</button>
             </div>
           </div>
@@ -2010,6 +2152,7 @@ function Canvas() {
       {tbTip && tbL.compact && tbL.mode !== 'floating' && (
         <div className="tb-tip" style={{ left: tbTip.x, top: tbTip.y }}>{tbTip.text}</div>
       )}
+      <LinkDialog />
       <TypeApplyToast />
       <RunSummaryModal />
       <Tooltip tip={tip} />

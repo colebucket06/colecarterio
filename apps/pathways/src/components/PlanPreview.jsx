@@ -54,7 +54,7 @@ export default function PlanPreview() {
             ? <div style={{ fontSize: 11, color: '#c084fc', marginTop: 5 }}>◉ Route highlighted on the canvas ({previewIds.size} elements)</div>
             : <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>No workflow links on this diagram.</div>}
           {branches.length > 0 && (
-            <button className="btn small" style={{ marginTop: 7 }} onClick={() => setShowBranches(true)}>⑂ Branch decisions ({branches.length})</button>
+            <button className="btn small" style={{ marginTop: 7 }} onClick={() => setShowBranches(true)}>⑂ Branch Decisions ({branches.length})</button>
           )}
         </div>
 

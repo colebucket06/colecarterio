@@ -49,7 +49,7 @@ export function IssueModal({ context, onClose }) {
           </div></div>
         <div className="foot">
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!title.trim()} onClick={submit}>⚠ Raise issue</button>
+          <button className="btn primary" disabled={!title.trim()} onClick={submit}>⚠ Raise Issue</button>
         </div>
       </div>
     </div>

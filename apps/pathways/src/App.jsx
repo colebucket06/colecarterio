@@ -26,13 +26,13 @@ function LogPanel({ onClose }) {
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
         <button className="btn small" disabled={unread === 0} title="Mark every transaction as read — the unread filter hides them afterwards"
-          onClick={() => s.markLogRead()}>✓ Mark all read</button>
+          onClick={() => s.markLogRead()}>✓ Mark All Read</button>
         {confirmClear ? (<>
-          <button className="btn small danger" onClick={() => { s.clearLog(); setConfirmClear(false) }}>✓ Confirm clear</button>
+          <button className="btn small danger" onClick={() => { s.clearLog(); setConfirmClear(false) }}>✓ Confirm Clear</button>
           <button className="btn small" onClick={() => setConfirmClear(false)}>✕ Cancel</button>
         </>) : (
           <button className="btn small danger" title="Permanently clear the transaction history"
-            onClick={() => setConfirmClear(true)}>🗑 Clear log</button>
+            onClick={() => setConfirmClear(true)}>🗑 Clear Log</button>
         )}
       </div>
       {entries.length === 0 && <div className="empty">{filter === 'unread' ? 'No unread entries — all caught up.' : 'No entries.'}</div>}
@@ -63,7 +63,7 @@ function NotifPanel({ onClose }) {
     <div className="notif-panel">
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10, gap: 6 }}>
         <b style={{ fontSize: 13.5 }}>📬 Notifications (simulated email outbox)</b>
-        <button className="btn small" style={{ marginLeft: 'auto' }} onClick={() => s.markAllRead()}>Mark all read</button>
+        <button className="btn small" style={{ marginLeft: 'auto' }} onClick={() => s.markAllRead()}>Mark All Read</button>
         <button className="btn small danger" title="Clear all notifications" onClick={() => s.clearNotifications()}>🗑 Clear</button>
         <button className="btn small" onClick={onClose}>✕</button>
       </div>
@@ -74,7 +74,7 @@ function NotifPanel({ onClose }) {
           <div className="nmeta"><span>to: {n.to}</span><span>{new Date(n.ts).toLocaleString()}</span><span className="tag project">{n.kind}</span></div>
           <div>{n.body}</div>
           <a className="btn small" style={{ display: 'inline-block', marginTop: 6, textDecoration: 'none' }}
-            href={`mailto:${n.to}?subject=${encodeURIComponent(n.subject)}&body=${encodeURIComponent(n.body)}`}>✉ Open in mail app</a>
+            href={`mailto:${n.to}?subject=${encodeURIComponent(n.subject)}&body=${encodeURIComponent(n.body)}`}>✉ Open in Mail App</a>
         </div>
       ))}
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6 }}>
@@ -183,7 +183,7 @@ function SavedThemes() {
       <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
         <input placeholder='Theme name (e.g. "High-contrast dark")' value={name} style={{ flex: 1 }}
           onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
-        <button className="btn small primary" disabled={!name.trim()} onClick={save}>💾 Save current as theme</button>
+        <button className="btn small primary" disabled={!name.trim()} onClick={save}>💾 Save Current as Theme</button>
       </div>
       {s.savedThemes.length === 0 && (
         <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
@@ -468,7 +468,7 @@ function ProjectsManager() {
       <div style={{ display: 'flex', gap: 7, marginBottom: 8 }}>
         <input placeholder="New project name" value={name} style={{ flex: 1 }} list="pw-terms"
           onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} />
-        <button className="btn small primary" disabled={!name.trim()} onClick={create}>＋ Add project</button>
+        <button className="btn small primary" disabled={!name.trim()} onClick={create}>＋ Add Project</button>
       </div>
       <div className="member-row">
         {nameCell(s.project.id, s.project.name)}
@@ -1084,7 +1084,7 @@ export default function App() {
           <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>{s.project.name}</span>
         )}
         <span className="tag project" title={`Signed in as ${s.session.name}`}>{s.session.role}{!canEdit && s.session.role !== 'viewer' ? ' · view-only' : ''}</span>
-        {canEdit && <button className="btn small" onClick={() => exportProjectFile(s.exportProject(), s.project.name)}>💾 Save project</button>}
+        {canEdit && <button className="btn small" onClick={() => exportProjectFile(s.exportProject(), s.project.name)}>💾 Save Project</button>}
         {canEdit && <button className="btn small" onClick={() => fileRef.current?.click()}>📂 Open</button>}
         <input ref={fileRef} type="file" accept=".json" style={{ display: 'none' }} onChange={onImport} />
         <button className="btn small" title="Back to the application launcher" onClick={() => useStore.setState({ session: { ...s.session, launched: false } })}>⌂</button>
@@ -1129,7 +1129,7 @@ export default function App() {
         )}
         {flagged > 0 && <span className="pill warn">🚩 {flagged} flagged issue{flagged === 1 ? '' : 's'}</span>}
         <span className="latest">{latest ? `Latest: ${latest.summary} — ${latest.actor}, ${new Date(latest.ts).toLocaleTimeString()}` : 'No activity yet'}</span>
-        <span style={{ fontSize: 11 }}>{showLog ? '▲ hide log' : '▼ view log'}</span>
+        <span style={{ fontSize: 11 }}>{showLog ? '▲ Hide Log' : '▼ View Log'}</span>
       </div>
       {showNotifs && <NotifPanel onClose={() => setShowNotifs(false)} />}
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}

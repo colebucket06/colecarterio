@@ -311,7 +311,7 @@ export default function PlanRunner() {
             ? <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 5 }}>◉ Route highlighted on the canvas</div>
             : <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 5 }}>No workflow links on this diagram.</div>}
           {branches.length > 0 && (
-            <button className="btn small" style={{ marginTop: 7 }} onClick={() => setShowBranches(true)}>⑂ Branch decisions ({branches.length})</button>
+            <button className="btn small" style={{ marginTop: 7 }} onClick={() => setShowBranches(true)}>⑂ Branch Decisions ({branches.length})</button>
           )}
         </div>
 
@@ -357,7 +357,7 @@ export default function PlanRunner() {
                   <AttachmentManager compact items={r.evidence}
                     onChange={(items) => setResults(results.map((x, j) => (j === i ? { ...x, evidence: items } : x)))} />
                   <div style={{ display: 'flex', gap: 6, marginTop: 7 }}>
-                    {!atEnd && <button className="btn small primary" onClick={() => s.setPlanStep(i + 1)}>Next step →</button>}
+                    {!atEnd && <button className="btn small primary" onClick={() => s.setPlanStep(i + 1)}>Next Step →</button>}
                     <button className="btn small" title="Raise an issue on this step (pre-bug) — optionally reassign it for validation; the case keeps running"
                       onClick={() => setIssueCtx({ caseId: tc.id, stepId: st.id,
                         defaultTitle: `Step ${i + 1} — ${(st.action || '').slice(0, 60)}`,
@@ -390,18 +390,18 @@ export default function PlanRunner() {
           {unmarked > 0 && <div className="req-warn">⚠ {unmarked} step{unmarked === 1 ? '' : 's'} unmarked — every step needs an explicit status.</div>}
           <button className="btn small" style={{ width: '100%', marginTop: 7 }}
             title="Raise an issue against the whole case (pre-bug) and optionally reassign it for validation"
-            onClick={() => setIssueCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>⚠ Raise issue on this case</button>
+            onClick={() => setIssueCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>⚠ Raise Issue on This Case</button>
           {overall === 'Fail' && (
             <button className="btn small danger" style={{ width: '100%', marginTop: 7 }}
               onClick={() => setBugCtx({ caseId: tc.id,
                 defaultTitle: `"${tc.name}" failed`,
                 defaultDescription: comment.trim() || 'Case-level failure — see execution history for step detail.' })}>
-              🐞 Create bug against this failed case</button>
+              🐞 Create Bug Against This Failed Case</button>
           )}
           <button className="btn primary" style={{ width: '100%', marginTop: 8 }}
             disabled={needsComment || unmet.length > 0 || tc.steps.length === 0 || unmarked > 0}
             onClick={finishCase}>
-            {run.caseIndex + 1 < run.queue.length ? '✔ Complete case & continue route' : '✔ Complete case & finish plan'}
+            {run.caseIndex + 1 < run.queue.length ? '✔ Complete Case & Continue Route' : '✔ Complete Case & Finish Plan'}
           </button>
         </div>
       </aside>

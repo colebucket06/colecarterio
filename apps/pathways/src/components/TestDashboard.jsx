@@ -70,8 +70,8 @@ function MapMenu({ x, y, onAdd, onManage, onClose }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose() }}>
       <div className="ctx-menu" ref={menuRef} style={style} onClick={(e) => e.stopPropagation()}>
-        <button onClick={onAdd}>➕ Add new points on canvas</button>
-        <button onClick={onManage}>⚙ Manage existing points…</button>
+        <button onClick={onAdd}>➕ Add New Points on Canvas</button>
+        <button onClick={onManage}>⚙ Manage Existing Points…</button>
       </div>
     </div>
   )
@@ -118,8 +118,8 @@ function MapManageModal({ tc, stepId, onClose }) {
         <div className="foot">
           <button className="btn" onClick={onClose}>Close</button>
           <button className="btn small" disabled={!entries.length}
-            onClick={() => (st.targetIds || []).slice().forEach((id) => s.removeStepTarget(tc.id, stepId, id))}>🗑 Clear all</button>
-          <button className="btn primary" onClick={() => { onClose(); s.startStepMapping(tc.id, stepId) }}>＋ Add points on canvas</button>
+            onClick={() => (st.targetIds || []).slice().forEach((id) => s.removeStepTarget(tc.id, stepId, id))}>🗑 Clear All</button>
+          <button className="btn primary" onClick={() => { onClose(); s.startStepMapping(tc.id, stepId) }}>＋ Add Points on Canvas</button>
         </div>
       </div>
     </div>
@@ -287,7 +287,7 @@ function ExecutionModal({ tc, suite, onClose }) {
         </div>
         <div className="foot">
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!started || needsComment || unmet.length > 0 || tc.steps.length === 0 || unmarked > 0} onClick={save}>Save execution</button>
+          <button className="btn primary" disabled={!started || needsComment || unmet.length > 0 || tc.steps.length === 0 || unmarked > 0} onClick={save}>Save Execution</button>
         </div>
       </div>
     </div>
@@ -488,8 +488,26 @@ export default function TestDashboard() {
   const unattached = s.cases.filter((c) => suite && !suite.caseIds.includes(c.id))
   const suiteReqKinds = (suite?.requirementTypes || []).map((r) => r.kind)
 
+  const linkNav = s.linkNav
+  const navLinked = linkNav && tc && (tc.links || []).some((l) => l.diagramId === linkNav.diagramId && l.targetIds.includes(linkNav.elementId))
   return (
     <div className={'test-layout' + (canEdit ? '' : ' readonly')}>
+      {linkNav && (
+        <div className="linknav-bar" title={`Arrived from the workflow element "${linkNav.elementLabel}" — link or unlink it against the open test case, or head back to the diagram`}>
+          <span style={{ fontSize: 11.5 }}>🔗 <b>{linkNav.elementLabel}</b></span>
+          {tc && (
+            <button className={'btn small' + (navLinked ? ' danger' : ' primary')}
+              title={navLinked ? `Remove the link between "${linkNav.elementLabel}" and "${tc.name}"` : `Link "${linkNav.elementLabel}" to "${tc.name}"`}
+              onClick={() => s.toggleCaseLink(tc.id, linkNav.diagramId, linkNav.elementId)}>
+              {navLinked ? '− Remove Link' : '＋ Add Link'}</button>
+          )}
+          <button className="btn small"
+            title="Return to the Workflow Diagram and reopen the link dialog for this element"
+            onClick={() => useStore.setState({ linkNav: null, page: 'diagram', activeDiagramId: linkNav.diagramId, linkDialog: { elementId: linkNav.elementId, tab: 'linked' } })}>
+            ⟵ Back to Workflow</button>
+          <button className="btn small" title="Dismiss" onClick={() => useStore.setState({ linkNav: null })}>✕</button>
+        </div>
+      )}
       <div className={'col suites' + (collapsedCols.suites ? ' collapsed' : '')}
         onClick={collapsedCols.suites ? () => setCollapsedCols((c) => ({ ...c, suites: false })) : undefined}>
         {collapsedCols.suites && railTag('suites', tab === 'suites' ? 'Suites' : 'Plans')}
@@ -551,7 +569,7 @@ export default function TestDashboard() {
             <div className="field"><label>Description</label>
               <input value={plan.description} onChange={(e) => s.updatePlan(plan.id, { description: e.target.value })} /></div>
             <button className="btn small danger"
-              onClick={() => { s.deletePlan(plan.id); setPlanId(s.plans.find((x) => x.id !== plan.id)?.id || null) }}>Delete plan</button>
+              onClick={() => { s.deletePlan(plan.id); setPlanId(s.plans.find((x) => x.id !== plan.id)?.id || null) }}>Delete Plan</button>
           </div>
         )}
       </div>
@@ -684,10 +702,10 @@ export default function TestDashboard() {
                 onClick={() => setRunning(true)}>{s.pausedCaseExecs.some((x) => x.caseId === tc.id) ? '⏵ Resume' : '▶ Run'}</button>
               {s.pausedRuns.some((x) => x.planId === 'adhoc:' + tc.id) ? (
                 <button className="btn" title="Resume the paused workflow-view run of this case" disabled={!!s.planRun}
-                  onClick={() => s.resumePlanRun('adhoc:' + tc.id)}>🗺 ⏵ Resume workflow run</button>
+                  onClick={() => s.resumePlanRun('adhoc:' + tc.id)}>🗺 ⏵ Resume Workflow Run</button>
               ) : (
                 <button className="btn" title="Run this case in the Workflow Diagram view — its steps affix as a sidebar on the right" disabled={!!s.planRun}
-                  onClick={() => s.startCaseRun(tc.id)}>🗺 Run in workflow</button>
+                  onClick={() => s.startCaseRun(tc.id)}>🗺 Run in Workflow</button>
               )}
               <button className="btn danger small" onClick={() => { s.deleteCase(tc.id); setCaseId(null) }}>Delete</button>
             </div>
@@ -702,7 +720,7 @@ export default function TestDashboard() {
 
             <div className="section">
               <h4>Test Steps
-                <button className="btn small" onClick={() => s.updateCase(tc.id, { steps: [...tc.steps, { id: uid('s'), action: '', expected: '', requirements: [], attachments: [] }] })}>＋ Add step</button>
+                <button className="btn small" onClick={() => s.updateCase(tc.id, { steps: [...tc.steps, { id: uid('s'), action: '', expected: '', requirements: [], attachments: [] }] })}>＋ Add Step</button>
                 <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>click ▸ for requirements & attachments</span></h4>
               {tc.steps.length > 0 && (
                 <div className="step-row step-labels" aria-hidden>
@@ -776,14 +794,14 @@ export default function TestDashboard() {
               <h4>⚠ Issues ({s.issues.filter((i) => i.caseId === tc.id).length})
                 <button className="btn small" style={{ marginLeft: 'auto' }}
                   title="Raise an issue on this case (pre-bug) — optionally reassign it to another user for validation"
-                  onClick={() => setIssueCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>＋ New issue</button></h4>
+                  onClick={() => setIssueCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>＋ New Issue</button></h4>
               <IssuesSection caseId={tc.id} />
             </div>
 
             <div className="section">
               <h4>🐞 Bugs ({s.bugs.filter((b) => b.caseId === tc.id).length})
                 <button className="btn small" style={{ marginLeft: 'auto' }}
-                  onClick={() => setBugCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>＋ New bug</button></h4>
+                  onClick={() => setBugCtx({ caseId: tc.id, defaultTitle: `"${tc.name}" — ` })}>＋ New Bug</button></h4>
               {s.bugs.filter((b) => b.caseId === tc.id).length === 0 && (
                 <div className="empty">No bugs — raise them here, from a failed execution row below, or while running the case.</div>
               )}

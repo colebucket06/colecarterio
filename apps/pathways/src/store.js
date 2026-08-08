@@ -971,9 +971,49 @@ export const useStore = create((set, get) => ({
   },
 
   // ---- element filter (transient — matching elements stay solid, others ghost) ----
-  filter: { text: '', types: [] },
+  filter: { text: '', types: [], pathCls: [] },
+  // ---- element ↔ test linking dialog + Test Management navigation context ----
+  linkDialog: null, // { elementId, tab: 'browse'|'linked' }
+  setLinkDialog: (v) => set({ linkDialog: v }),
+  linkNav: null, // { elementId, elementLabel, diagramId, caseId } — arrival banner in Test Management
+  toggleCaseLink: (caseId, diagramId, elId) => {
+    let added = false
+    set((s) => ({
+      cases: s.cases.map((c) => {
+        if (c.id !== caseId) return c
+        let links = c.links || []
+        const l = links.find((x) => x.diagramId === diagramId)
+        if (l) {
+          const has = l.targetIds.includes(elId)
+          added = !has
+          links = links
+            .map((x) => (x === l ? { ...x, targetIds: has ? x.targetIds.filter((t) => t !== elId) : [...x.targetIds, elId] } : x))
+            .filter((x) => x.targetIds.length)
+        } else { added = true; links = [...links, { diagramId, targetIds: [elId] }] }
+        return { ...c, links }
+      }),
+    }))
+    const c = get().cases.find((x) => x.id === caseId)
+    get().log('test', 'link', `${added ? 'Linked' : 'Unlinked'} a workflow element ${added ? 'to' : 'from'} test case "${c?.name}"`, caseId)
+    return added
+  },
+  toggleStepLink: (caseId, stepId, elId) => {
+    let added = false
+    set((s) => ({
+      cases: s.cases.map((c) => (c.id === caseId
+        ? { ...c, steps: c.steps.map((st) => {
+            if (st.id !== stepId) return st
+            const has = (st.targetIds || []).includes(elId)
+            added = !has
+            return { ...st, targetIds: has ? st.targetIds.filter((t) => t !== elId) : [...(st.targetIds || []), elId] }
+          }) }
+        : c)),
+    }))
+    get().log('test', 'link', `${added ? 'Linked' : 'Unlinked'} a workflow element ${added ? 'to' : 'from'} a test step`, caseId)
+    return added
+  },
   setFilter: (patch) => set((s) => ({ filter: { ...s.filter, ...patch } })),
-  clearFilter: () => set({ filter: { text: '', types: [] } }),
+  clearFilter: () => set({ filter: { text: '', types: [], pathCls: [] } }),
 
   onNodesChange: (changes) => {
     if (changes.some((c) => c.type === 'position' && c.dragging)) get().pushHistory('Move element', 'move')

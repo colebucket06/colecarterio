@@ -25,6 +25,7 @@ export default function MaximoWizard({ onClose }) {
   const [destType, setDestType] = useState('existing')
   const [destId, setDestId] = useState(s.project.id)
   const [destName, setDestName] = useState('Maximo Import')
+  const [diagNames, setDiagNames] = useState({}) // processname::rev → custom diagram name
   const [result, setResult] = useState(null)
 
   const key = (p) => `${p.processname}::${p.processrev}`
@@ -67,6 +68,11 @@ export default function MaximoWizard({ onClose }) {
     try {
       const selected = procs.filter((p) => picked.has(key(p)))
       const built = buildDiagrams(tables, selected, includeSubs)
+      built.forEach((r) => {
+        const k = `${r.meta.processname}::${r.meta.processrev}`
+        const custom = (diagNames[k] || '').trim()
+        if (custom && !r.meta.viaSub) r.diagram.name = custom
+      })
       s.importMaximoDiagrams(destType === 'new' ? { type: 'new', name: destName } : { type: 'existing', id: destId }, built)
       setResult(built)
       setStep(4)
@@ -112,9 +118,9 @@ export default function MaximoWizard({ onClose }) {
                 <button key={v} className={fEnabled === v ? 'on accent' : ''} onClick={() => setFEnabled(v)}>{v}</button>
               ))}
             </span>
-            <label className="toggle"><input type="checkbox" checked={latestOnly} onChange={(e) => setLatestOnly(e.target.checked)} />latest revision only</label>
+            <label className="toggle"><input type="checkbox" checked={latestOnly} onChange={(e) => setLatestOnly(e.target.checked)} />Latest Revision Only</label>
             <button className="btn small" style={{ marginLeft: 'auto' }}
-              onClick={() => setPicked(new Set(filtered.map(key)))}>✓ Select shown ({filtered.length})</button>
+              onClick={() => setPicked(new Set(filtered.map(key)))}>✓ Select Shown ({filtered.length})</button>
             <button className="btn small" disabled={!picked.size} onClick={() => setPicked(new Set())}>✕ Clear</button>
           </div>
           <div style={{ maxHeight: '46vh', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 10 }}>
@@ -140,18 +146,23 @@ export default function MaximoWizard({ onClose }) {
           <label className="toggle" style={{ display: 'flex', marginTop: 8 }}
             title="Referenced subprocesses found in the export are imported as their own linked diagrams">
             <input type="checkbox" checked={includeSubs} onChange={(e) => setIncludeSubs(e.target.checked)} />
-            Auto-import referenced subprocesses as linked diagrams</label>
+            Auto-Import Referenced Subprocesses as Linked Diagrams</label>
           <div className="foot">
             <button className="btn" onClick={() => setStep(1)}>← Back</button>
-            <button className="btn primary" disabled={!picked.size} onClick={() => setStep(3)}>Continue ({picked.size} selected) →</button>
+            <button className="btn primary" disabled={!picked.size} onClick={() => {
+              const seed = {}
+              procs.filter((p) => picked.has(key(p))).forEach((p) => { seed[key(p)] = diagNames[key(p)] || `${p.processname} rev ${p.processrev}` })
+              setDiagNames(seed)
+              setStep(3)
+            }}>Continue ({picked.size} selected) →</button>
           </div>
         </>)}
 
         {step === 3 && (<>
           <div className="field"><label>Where should the imported diagrams land?</label>
             <div className="seg" style={{ marginBottom: 10 }}>
-              <button className={destType === 'existing' ? 'on accent' : ''} onClick={() => setDestType('existing')}>Existing project</button>
-              <button className={destType === 'new' ? 'on accent' : ''} onClick={() => setDestType('new')}>＋ New project</button>
+              <button className={destType === 'existing' ? 'on accent' : ''} onClick={() => setDestType('existing')}>Existing Project</button>
+              <button className={destType === 'new' ? 'on accent' : ''} onClick={() => setDestType('new')}>＋ New Project</button>
             </div>
             {destType === 'existing' ? (
               <select value={destId} onChange={(e) => setDestId(e.target.value)}>
@@ -162,8 +173,21 @@ export default function MaximoWizard({ onClose }) {
               <input value={destName} list="pw-terms" placeholder="New project name" onChange={(e) => setDestName(e.target.value)} />
             )}
           </div>
+          <div className="field"><label>Diagram Names</label>
+            <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 6 }}>
+              Each selected workflow becomes a diagram — rename any of them here before importing. Auto-imported subprocesses keep their default names.
+            </div>
+            {procs.filter((p) => picked.has(key(p))).map((p) => (
+              <div key={key(p)} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <span style={{ fontSize: 11.5, color: 'var(--text-dim)', width: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  title={`${p.processname} revision ${p.processrev}`}>{p.processname} r{p.processrev}</span>
+                <input style={{ flex: 1 }} list="pw-terms" value={diagNames[key(p)] ?? `${p.processname} rev ${p.processrev}`}
+                  onChange={(e) => setDiagNames({ ...diagNames, [key(p)]: e.target.value })} />
+              </div>
+            ))}
+          </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
-            Each selected workflow revision becomes a diagram named “PROCESSNAME rev N”, with nodes, connection paths (positive routes green, negative red), and Maximo attribution (node IDs, assignments, condition expressions, subprocess links) attached as configuration and custom attributes.
+            Diagrams import with nodes, connection paths (positive routes green, negative red), and Maximo attribution (node IDs, assignments, condition expressions, subprocess links) attached as configuration and custom attributes.
           </div>
           {err && <div className="field-err" style={{ marginTop: 8 }}>⚠ {err}</div>}
           <div className="foot">
@@ -190,7 +214,7 @@ export default function MaximoWizard({ onClose }) {
               </span>
             </div>
           ))}
-          <div className="foot"><button className="btn primary" onClick={onClose}>✓ Open the workspace</button></div>
+          <div className="foot"><button className="btn primary" onClick={onClose}>✓ Open the Workspace</button></div>
         </>)}
       </div>
     </div>
