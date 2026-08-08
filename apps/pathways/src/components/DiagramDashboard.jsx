@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useReactFlow } from '@xyflow/react'
 import { useStore, NODE_TEMPLATES, NODE_SHAPES, coveredIds, casesLinkedTo, mergedTemplates, mergedTemplate, suggestCfg } from '../store'
 import FlowNode, { SectionNode, StickyNode, iconInk } from './FlowNode'
@@ -251,11 +252,15 @@ function Tooltip({ tip }) {
 
 
 // ---- element ↔ test link dialog: browse suites/cases/steps or review linked items ----
+// Steps are children of cases: a linked step means its parent case is linked as a
+// subset, so the Linked view groups steps under their case and shares suite/plan
+// relationship details. The right-click menu portals to <body> (the panel's
+// backdrop-filter would otherwise trap position:fixed and clip it).
 function LinkDialog() {
   const s = useStore()
   const dlg = s.linkDialog
   const [openCases, setOpenCases] = useState({}) // caseId → steps expanded
-  const [mini, setMini] = useState(null) // { x, y, caseId } — right-click mini menu
+  const [mini, setMini] = useState(null) // { x, y, caseId, label } — right-click menu
   const [menuRef, miniStyle] = useSmartMenuPos(mini?.x || 0, mini?.y || 0)
   if (!dlg) return null
   const diagId = s.activeDiagramId
@@ -266,90 +271,122 @@ function LinkDialog() {
   const close = () => s.setLinkDialog(null)
   const caseLinked = (c) => (c.links || []).some((l) => l.diagramId === diagId && l.targetIds.includes(dlg.elementId))
   const stepLinked = (st) => (st.targetIds || []).includes(dlg.elementId)
+  // relationship context: the suite (if any) and plans a case belongs to
+  const relOf = (c) => {
+    const suite = s.suites.find((su) => su.caseIds.includes(c.id))
+    const plans = s.plans.filter((pl) => pl.caseIds.includes(c.id))
+    return { suite, plans }
+  }
+  const relText = (c) => {
+    const { suite, plans } = relOf(c)
+    return `Suite: ${suite ? suite.name : 'unassigned'}${plans.length ? ` · Plans: ${plans.map((p) => p.name).join(', ')}` : ''}`
+  }
   const caseSummary = (c) => {
     const last = (c.executions || []).find((x) => x.state !== 'deleted')
-    return `${c.objective || 'No objective set'} · ${c.steps.length} step${c.steps.length === 1 ? '' : 's'}${last ? ` · last run: ${last.overallStatus}` : ' · never executed'}`
+    return `${c.objective || 'No objective set'} · ${c.steps.length} step${c.steps.length === 1 ? '' : 's'}${last ? ` · last run: ${last.overallStatus}` : ' · never executed'} · ${relText(c)}`
   }
-  const stepSummary = (st, i) => `Step ${i + 1}: ${st.action || '(no action)'} — expected: ${st.expected || '—'}`
+  const stepSummary = (c, st, i) => `Step ${i + 1} of "${c.name}": ${st.action || '(no action)'} — expected: ${st.expected || '—'} · ${relText(c)}`
   const goToTM = (caseId) => {
     useStore.setState({
       linkNav: { elementId: dlg.elementId, elementLabel: elLabel, diagramId: diagId, caseId },
       focusCaseId: caseId, page: 'tests', linkDialog: null,
     })
   }
-  const linkedCases = s.cases.filter(caseLinked)
-  const linkedSteps = s.cases.flatMap((c) => c.steps.filter(stepLinked).map((st) => ({ c, st, i: c.steps.indexOf(st) })))
+  const rc = (e, c) => { e.preventDefault(); e.stopPropagation(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id, label: c.name }) }
+  // linked view: group linked steps under their parent case (steps are subsets of the case)
+  const linkedGroups = s.cases.map((c) => {
+    const direct = caseLinked(c)
+    const steps = c.steps.map((st, i) => ({ st, i })).filter(({ st }) => stepLinked(st))
+    return direct || steps.length ? { c, direct, steps } : null
+  }).filter(Boolean)
+  const linkedCount = linkedGroups.reduce((n, g) => n + (g.direct ? 1 : 0) + g.steps.length, 0)
+  const unassigned = s.cases.filter((c) => !s.suites.some((su) => su.caseIds.includes(c.id)))
+  const caseRow = (c, viaSuite) => (
+    <div key={c.id}>
+      <div className="link-row" title={caseSummary(c)} onContextMenu={(e) => rc(e, c)}>
+        <input type="checkbox" checked={caseLinked(c)} onChange={() => s.toggleCaseLink(c.id, diagId, dlg.elementId)} />
+        <b style={{ flex: 1, fontSize: 12 }}>🧪 {c.name}</b>
+        <button className="btn small" title={`Open "${c.name}" in the Test Management tab`} onClick={() => goToTM(c.id)}>👁</button>
+        {c.steps.length > 0 && (
+          <a style={{ cursor: 'pointer', fontSize: 11 }}
+            onClick={() => setOpenCases({ ...openCases, [c.id]: !openCases[c.id] })}>{openCases[c.id] ? '▾ steps' : '▸ steps'}</a>
+        )}
+      </div>
+      {openCases[c.id] && c.steps.map((st, i) => (
+        <div className="link-row" key={st.id} style={{ paddingLeft: 22 }} title={stepSummary(c, st, i)}
+          onContextMenu={(e) => rc(e, c)}>
+          <input type="checkbox" checked={stepLinked(st)} onChange={() => s.toggleStepLink(c.id, st.id, dlg.elementId)} />
+          <span style={{ flex: 1, fontSize: 11.5 }}>step {i + 1} · {(st.action || '(no action)').slice(0, 34)}</span>
+        </div>
+      ))}
+    </div>
+  )
   return (
-    <div className="auto-connect-panel" style={{ width: 'min(340px, calc(100vw - 40px))' }}>
+    <div className="auto-connect-panel" style={{ width: 'min(350px, calc(100vw - 40px))' }}>
       <h3 style={{ margin: '0 0 4px', fontSize: 13.5, display: 'flex', alignItems: 'center' }}>
         🔗 Test Links — {String(elLabel).slice(0, 26)}
         <button className="btn small" style={{ marginLeft: 'auto' }} onClick={close}>✕</button></h3>
       <div className="seg" style={{ marginBottom: 8 }}>
-        <button className={dlg.tab !== 'browse' ? 'on accent' : ''} onClick={() => s.setLinkDialog({ ...dlg, tab: 'linked' })}>Linked ({linkedCases.length + linkedSteps.length})</button>
+        <button className={dlg.tab !== 'browse' ? 'on accent' : ''} onClick={() => s.setLinkDialog({ ...dlg, tab: 'linked' })}>Linked ({linkedCount})</button>
         <button className={dlg.tab === 'browse' ? 'on accent' : ''} onClick={() => s.setLinkDialog({ ...dlg, tab: 'browse' })}>Browse All</button>
       </div>
       <div style={{ fontSize: 10.5, color: 'var(--text-dim)', marginBottom: 6 }}>
-        Hover an item for its summary · right-click it to open it in Test Management.
+        Hover an item for its summary and suite/plan relationships · 👁 or right-click opens it in Test Management.
       </div>
       <div style={{ maxHeight: '46vh', overflowY: 'auto' }}>
-        {dlg.tab === 'browse' ? (
-          s.suites.length === 0 ? <div className="empty">No test suites yet — create them in Test Management.</div>
-          : s.suites.map((su) => (
+        {dlg.tab === 'browse' ? (<>
+          {s.cases.length === 0 && <div className="empty">No test cases yet — create them in Test Management.</div>}
+          {s.suites.map((su) => (
             <div key={su.id} style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>{su.name}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Suite · {su.name}</div>
               {su.caseIds.map((cid) => {
                 const c = s.cases.find((x) => x.id === cid)
-                if (!c) return null
-                return (
-                  <div key={c.id}>
-                    <div className="link-row" title={caseSummary(c)}
-                      onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
-                      <input type="checkbox" checked={caseLinked(c)} onChange={() => s.toggleCaseLink(c.id, diagId, dlg.elementId)} />
-                      <b style={{ flex: 1, fontSize: 12 }}>🧪 {c.name}</b>
-                      {c.steps.length > 0 && (
-                        <a style={{ cursor: 'pointer', fontSize: 11 }}
-                          onClick={() => setOpenCases({ ...openCases, [c.id]: !openCases[c.id] })}>{openCases[c.id] ? '▾ steps' : '▸ steps'}</a>
-                      )}
-                    </div>
-                    {openCases[c.id] && c.steps.map((st, i) => (
-                      <div className="link-row" key={st.id} style={{ paddingLeft: 22 }} title={stepSummary(st, i)}
-                        onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
-                        <input type="checkbox" checked={stepLinked(st)} onChange={() => s.toggleStepLink(c.id, st.id, dlg.elementId)} />
-                        <span style={{ flex: 1, fontSize: 11.5 }}>step {i + 1} · {(st.action || '(no action)').slice(0, 34)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )
+                return c ? caseRow(c, su) : null
               })}
             </div>
-          ))
-        ) : (<>
-          {linkedCases.length + linkedSteps.length === 0 && <div className="empty">Nothing linked to this element yet.</div>}
-          {linkedCases.map((c) => (
-            <div className="link-row" key={c.id} title={caseSummary(c)}
-              onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
-              <b style={{ flex: 1, fontSize: 12 }}>🧪 {c.name}</b>
-              <button className="btn small" title="Remove This Link" onClick={() => s.toggleCaseLink(c.id, diagId, dlg.elementId)}>✕</button>
-            </div>
           ))}
-          {linkedSteps.map(({ c, st, i }) => (
-            <div className="link-row" key={st.id} title={stepSummary(st, i)}
-              onContextMenu={(e) => { e.preventDefault(); setMini({ x: e.clientX, y: e.clientY, caseId: c.id }) }}>
-              <span style={{ flex: 1, fontSize: 11.5 }}>🎯 {c.name} · step {i + 1}</span>
-              <button className="btn small" title="Remove This Link" onClick={() => s.toggleStepLink(c.id, st.id, dlg.elementId)}>✕</button>
+          {unassigned.length > 0 && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 10.5, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 1 }}>Unassigned Cases</div>
+              {unassigned.map((c) => caseRow(c, null))}
+            </div>
+          )}
+        </>) : (<>
+          {linkedGroups.length === 0 && <div className="empty">Nothing linked to this element yet.</div>}
+          {linkedGroups.map(({ c, direct, steps }) => (
+            <div key={c.id} style={{ marginBottom: 6 }}>
+              <div className="link-row" title={caseSummary(c)} onContextMenu={(e) => rc(e, c)}>
+                <b style={{ flex: 1, fontSize: 12 }}>🧪 {c.name}</b>
+                <span className="tag project" style={{ flexShrink: 0 }}
+                  title={direct ? 'The whole case is linked to this element' : 'Linked through its steps below — the case is linked as a subset'}>
+                  {direct ? 'case linked' : 'via steps'}</span>
+                <button className="btn small" title={`Open "${c.name}" in the Test Management tab`} onClick={() => goToTM(c.id)}>👁</button>
+                {direct && <button className="btn small" title="Remove the case-level link (step links remain)"
+                  onClick={() => s.toggleCaseLink(c.id, diagId, dlg.elementId)}>✕</button>}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-dim)', paddingLeft: 4, marginBottom: 2 }}>{relText(c)}</div>
+              {steps.map(({ st, i }) => (
+                <div className="link-row" key={st.id} style={{ paddingLeft: 22 }} title={stepSummary(c, st, i)}
+                  onContextMenu={(e) => rc(e, c)}>
+                  <span style={{ flex: 1, fontSize: 11.5 }}>🎯 step {i + 1} · {(st.action || '(no action)').slice(0, 32)}</span>
+                  <button className="btn small" title="Remove this step link" onClick={() => s.toggleStepLink(c.id, st.id, dlg.elementId)}>✕</button>
+                </div>
+              ))}
             </div>
           ))}
           <button className="btn small primary" style={{ marginTop: 6 }}
             onClick={() => s.setLinkDialog({ ...dlg, tab: 'browse' })}>＋ Add New Link</button>
         </>)}
       </div>
-      {mini && (
+      {mini && createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 94 }} onClick={() => setMini(null)} onContextMenu={(e) => { e.preventDefault(); setMini(null) }}>
           <div className="ctx-menu" ref={menuRef} style={miniStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: '5px 11px', fontSize: 11, color: 'var(--accent-2)', fontWeight: 700 }}>🧪 {mini.label.slice(0, 34)}</div>
+            <div className="sep" />
             <button onClick={() => { setMini(null); goToTM(mini.caseId) }}>👁 View in Test Management</button>
           </div>
-        </div>
-      )}
+        </div>,
+        document.body)}
     </div>
   )
 }
