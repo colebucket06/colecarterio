@@ -1031,3 +1031,13 @@ body.light .brush-banner { box-shadow: 0 6px 18px rgba(80,100,160,.3); }
 .edge-ind .nind { position: static; }
 .edge-ind .nind-fly { right: auto; left: 50%; transform: translateX(-50%) translateY(5px) scale(.94); transform-origin: bottom center; }
 .edge-ind .nind:hover .nind-fly { transform: translateX(-50%); }
+
+/* ---- Administration tab + organization branding ---- */
+.admin-page { flex: 1; overflow-y: auto; }
+.admin-section {
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 16px;
+}
+.admin-section h3 { margin: 0 0 8px; font-size: 14px; }
+.org-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--bg); }
+.org-logo { height: 26px; max-width: 110px; object-fit: contain; margin-left: 10px; border-radius: 5px; }

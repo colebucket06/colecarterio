@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useStore, mergedTemplates, validPassword, genPassword } from './store'
+import { useStore, mergedTemplates, validPassword, genPassword, ROLE_LABELS, isAdminRole, isOrgAdminRole } from './store'
 import { iconInk } from './components/FlowNode'
 import DiagramDashboard from './components/DiagramDashboard'
 import TestDashboard from './components/TestDashboard'
@@ -57,7 +57,7 @@ function NotifPanel({ onClose }) {
   // visibility: Owner/Admins see everything; other users see only notifications
   // addressed to them or where they're in the audience (e.g. their own invites)
   const ses = s.session
-  const seesAll = ['owner', 'admin'].includes(ses?.role)
+  const seesAll = isAdminRole(ses?.role)
   const visible = s.notifications.filter((n) => seesAll || n.to === ses?.email || (n.audience || []).includes(ses?.email))
   return (
     <div className="notif-panel">
@@ -160,6 +160,139 @@ function WorkspaceBars() {
       })}
       <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
         Fixed bars attach flush to the workspace (the main toolbar spans the top); floating detaches them into draggable cards. The palette defaults to compact (icons only, labels on hover); the main toolbar defaults to full. These settings are also reachable from 👁 View on the workflow toolbar.
+      </div>
+    </div>
+  )
+}
+
+
+// ---- Administration tab: Owner + Organizational Administrators only ----
+// Hosts all global configuration: organizations (Owner-defined), corporate
+// branding and theme locks, and application-wide defaults.
+function OrganizationsAdmin() {
+  const s = useStore()
+  const isOwner = s.session?.role === 'owner'
+  const [name, setName] = useState('')
+  const logoRef = useRef(null)
+  const [logoTarget, setLogoTarget] = useState(null)
+  const members = (orgId) => s.accounts.filter((a) => a.orgId === orgId)
+  const unassigned = s.accounts.filter((a) => a.role !== 'owner' && !s.organizations.some((o) => o.id === a.orgId))
+  const onLogo = async (e) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f || !logoTarget) return
+    const reader = new FileReader()
+    reader.onload = () => s.updateOrganization(logoTarget, { logo: reader.result })
+    reader.readAsDataURL(f)
+  }
+  const captureScheme = (orgId, mode) => {
+    const org = s.organizations.find((o) => o.id === orgId)
+    const scheme = { ...(s.theme.custom?.[mode] || {}) }
+    s.updateOrganization(orgId, { themeLock: { ...org.themeLock, [mode]: scheme } })
+  }
+  return (
+    <div className="admin-section">
+      <h3>🏢 Organizations</h3>
+      <div style={{ fontSize: 11.5, color: 'var(--text-dim)', marginBottom: 8 }}>
+        Every user except the Owner must belong to an organization. Organizations carry corporate branding (logo) and can lock members to admin-defined Light and Dark themes.
+        {!isOwner && ' Only the Owner can create or delete organizations.'}
+      </div>
+      {isOwner && (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 10 }}>
+          <input placeholder="New organization name" value={name} style={{ flex: 1 }} list="pw-terms"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) { s.addOrganization(name); setName('') } }} />
+          <button className="btn small primary" disabled={!name.trim()}
+            onClick={() => { s.addOrganization(name); setName('') }}>＋ Create Organization</button>
+        </div>
+      )}
+      {s.organizations.length === 0 && <div className="empty">No organizations yet{isOwner ? ' — create the first one above.' : '.'}</div>}
+      {s.organizations.map((org) => {
+        const lock = org.themeLock || { locked: false, light: null, dark: null }
+        return (
+          <div key={org.id} className="org-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {org.logo
+                ? <img src={org.logo} alt="" style={{ height: 30, maxWidth: 110, objectFit: 'contain', borderRadius: 6 }} />
+                : <span style={{ fontSize: 20 }}>🏢</span>}
+              <input style={{ fontWeight: 700, width: 220 }} value={org.name}
+                onChange={(e) => s.updateOrganization(org.id, { name: e.target.value })} />
+              <span className="tag project">{members(org.id).length} member{members(org.id).length === 1 ? '' : 's'}</span>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                <button className="btn small" title="Upload a company logo (shown in the top bar for this organization's users)"
+                  onClick={() => { setLogoTarget(org.id); logoRef.current?.click() }}>🖼 Logo</button>
+                {org.logo && <button className="btn small" onClick={() => s.updateOrganization(org.id, { logo: null })}>✕ Logo</button>}
+                {isOwner && (
+                  <button className="btn small danger" disabled={members(org.id).length > 0}
+                    title={members(org.id).length ? 'Reassign its members before deleting' : 'Delete this organization'}
+                    onClick={() => s.deleteOrganization(org.id)}>🗑</button>
+                )}
+              </span>
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <label className="toggle" title="When locked, this organization's users can only switch between the admin-defined Light and Dark themes — no palette or scheme editing.">
+                <input type="checkbox" checked={!!lock.locked}
+                  onChange={(e) => s.updateOrganization(org.id, { themeLock: { ...lock, locked: e.target.checked } })} />
+                🔒 Lock Themes for Members</label>
+              <button className="btn small" title="Save the current Light scheme (from the theme editor) as this organization's locked Light theme"
+                onClick={() => captureScheme(org.id, 'light')}>☀ Set Light {lock.light ? '✓' : ''}</button>
+              <button className="btn small" title="Save the current Dark scheme as this organization's locked Dark theme"
+                onClick={() => captureScheme(org.id, 'dark')}>🌙 Set Dark {lock.dark ? '✓' : ''}</button>
+              {lock.locked && <span style={{ fontSize: 10.5, color: 'var(--text-dim)' }}>Members get Light/Dark switching only.</span>}
+            </div>
+            <div style={{ marginTop: 8 }}>
+              {members(org.id).map((a) => (
+                <span key={a.email} className="tag project" style={{ marginRight: 5 }}>
+                  {a.preferredName || a.firstName} · {ROLE_LABELS[a.role] || a.role}
+                  <a style={{ cursor: 'pointer', marginLeft: 5 }} title="Remove from organization"
+                    onClick={() => s.assignUserOrg(a.email, null)}>✕</a>
+                </span>
+              ))}
+              {members(org.id).length === 0 && <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>No members assigned yet.</span>}
+            </div>
+          </div>
+        )
+      })}
+      <input ref={logoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onLogo} />
+      {unassigned.length > 0 && s.organizations.length > 0 && (
+        <div className="org-card" style={{ borderColor: 'rgba(251,191,36,.5)' }}>
+          <b style={{ fontSize: 12.5 }}>⚠ Users Without an Organization</b>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 8px' }}>
+            Every non-Owner user must be assigned — pick an organization for each:
+          </div>
+          {unassigned.map((a) => (
+            <div key={a.email} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+              <span style={{ flex: 1, fontSize: 12 }}>{a.preferredName || a.firstName} <span style={{ color: 'var(--text-dim)' }}>({a.email})</span></span>
+              <select defaultValue="" onChange={(e) => e.target.value && s.assignUserOrg(a.email, e.target.value)}>
+                <option value="" disabled>Assign to…</option>
+                {s.organizations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AdminDashboard() {
+  const s = useStore()
+  return (
+    <div className="admin-page">
+      <div style={{ maxWidth: 780, margin: '0 auto', padding: '18px 20px 40px' }}>
+        <h2 style={{ margin: '0 0 4px' }}>🛠 Administration</h2>
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 16 }}>
+          Global configuration for Pathways.io — visible to the Owner and Organizational Administrators only. Settings here define the application-wide defaults.
+        </div>
+        <OrganizationsAdmin />
+        <div className="admin-section">
+          <h3>🌐 Global Settings — Defaults</h3>
+          <GlobalSettings />
+        </div>
+        <div className="admin-section">
+          <h3>🧰 Workspace Bar Defaults</h3>
+          <WorkspaceBars />
+        </div>
       </div>
     </div>
   )
@@ -345,6 +478,23 @@ function AdvancedScheme() {
 function ThemeSchemeEditor() {
   const s = useStore()
   const [level, setLevel] = useState('basic')
+  const org = s.sessionOrg()
+  if (org?.themeLock?.locked && !isOrgAdminRole(s.session?.role)) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <span style={{ fontSize: 12.5 }}>App Mode</span>
+          <span className="seg">
+            <button className={s.theme.mode === 'dark' ? 'on accent' : ''} onClick={() => s.setThemeMode('dark')}>🌙 Dark</button>
+            <button className={s.theme.mode === 'light' ? 'on accent' : ''} onClick={() => s.setThemeMode('light')}>☀ Light</button>
+          </span>
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-dim)' }}>
+          🔒 Themes are managed by <b>{org.name}</b> — your administrators define the Light and Dark schemes; switching between them is the available choice.
+        </div>
+      </div>
+    )
+  }
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -682,7 +832,7 @@ function AddUserForm({ onClose }) {
           </div></div>
         <div className="field"><label>Role</label>
           <select value={f.role} onChange={(e) => set2('role', e.target.value)}>
-            <option value="admin">Administrator</option><option value="user">User</option><option value="viewer">Viewer</option>
+            <option value="orgadmin">Organizational Administrator</option><option value="admin">Project Administrator</option><option value="user">User</option><option value="viewer">Viewer</option>
           </select></div>
       </div>
       <PwRules pw={f.password} />
@@ -715,7 +865,7 @@ function InviteModal({ onClose }) {
   const [picked, setPicked] = useState(myCommunities.map((c) => c.id)) // default: inviter's communities
   const [err, setErr] = useState(null)
   const [sent, setSent] = useState(false)
-  const isAdmin = ['owner', 'admin'].includes(s.session?.role)
+  const isAdmin = isAdminRole(s.session?.role)
   const toggle = (id) => setPicked(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id])
   const send = () => {
     const e = s.inviteUser({ email, name, communities: picked })
@@ -861,7 +1011,8 @@ function AccountAdmin() {
                 ) : (
                   <select value={a.role} onChange={(e) => s.setAccountRole(a.email, e.target.value)}
                     disabled={self} title={self ? 'You cannot change your own role' : 'Role'}>
-                    <option value="admin">Administrator</option>
+                    <option value="orgadmin">Organizational Administrator</option>
+                    <option value="admin">Project Administrator</option>
                     <option value="user">User</option>
                     <option value="viewer">Viewer</option>
                   </select>
@@ -936,11 +1087,11 @@ function ProfileModal({ onClose }) {
           <ProjectsManager />
         </Fold>
 
-        <Fold title="🌐 Global Settings"
-          badge={(() => { const ps = { enabled: true, ...(s.viewSettings.pathSuggest || {}) }; return <span className="tag project">suggestions {ps.enabled ? 'on' : 'off'}</span> })()}>
-          <GlobalSettings />
-        </Fold>
-
+        {isOrgAdminRole(s.session?.role) && (
+          <div style={{ fontSize: 11.5, color: 'var(--text-dim)', margin: '2px 0 10px' }}>
+            🛠 Global settings, organizations, branding, and workspace defaults moved to the <b>Administration</b> tab.
+          </div>
+        )}
         <Fold title="🧰 Workspace Bars"
           badge={<span className="tag project">{['toolbar', 'palette'].map((el) => {
             const L = { mode: 'fixed', compact: el === 'palette', ...((s.viewSettings.workspaceLayout || {})[el] || {}) }
@@ -1015,7 +1166,7 @@ function ProfileModal({ onClose }) {
           </div>
         </Fold>
 
-        {['owner', 'admin'].includes(s.session?.role) && (
+        {isAdminRole(s.session?.role) && (
           <Fold title="🔐 User Administration"
             badge={s.accessRequests.filter((r) => r.status === 'pending').length > 0
               ? <span className="tag test">{s.accessRequests.filter((r) => r.status === 'pending').length} pending</span>
@@ -1041,7 +1192,16 @@ export default function App() {
   const unread = s.notifications.filter((n) => !n.read).length
 
   useEffect(() => { s.checkDueDates() }, []) // eslint-disable-line
-  useEffect(() => { applyThemeToDOM(s.theme) }, [s.theme])
+  // organization theme lock: locked members render the admin-defined schemes
+  const orgForTheme = s.sessionOrg()
+  const themeLocked = !!orgForTheme?.themeLock?.locked && !isOrgAdminRole(s.session?.role)
+  const effTheme = themeLocked
+    ? { ...s.theme, basicKey: null, custom: {
+        light: orgForTheme.themeLock.light || {},
+        dark: orgForTheme.themeLock.dark || {},
+      } }
+    : s.theme
+  useEffect(() => { applyThemeToDOM(effTheme) }, [s.theme, themeLocked, orgForTheme]) // eslint-disable-line
   // view-only share links from a Project Owner open without authentication
   useEffect(() => {
     const m = window.location.hash.match(/#shared=([^&]+)/)
@@ -1067,10 +1227,18 @@ export default function App() {
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="logo"><PathwaysIcon size={30} />Pathways.io</div>
+        <div className="logo"><PathwaysIcon size={30} />Pathways.io
+          {(() => { const org = s.sessionOrg(); return org?.logo
+            ? <img className="org-logo" src={org.logo} alt={org.name} title={org.name} /> : null })()}
+        </div>
         <nav className="nav-tabs">
           <button className={'nav-tab' + (s.page === 'diagram' ? ' active' : '')} onClick={() => s.setPage('diagram')}>Workflow</button>
           <button className={'nav-tab' + (s.page === 'tests' ? ' active' : '')} onClick={() => s.setPage('tests')}>Test Management</button>
+          {isOrgAdminRole(s.session?.role) && (
+            <button className={'nav-tab' + (s.page === 'admin' ? ' active' : '')}
+              title="Global configuration — organizations, branding, theme locks, and application defaults"
+              onClick={() => s.setPage('admin')}>Administration</button>
+          )}
         </nav>
         <span className="spacer" />
         {canEdit ? (
@@ -1110,7 +1278,8 @@ export default function App() {
         {s.termsCache.map((t) => <option key={t} value={t} />)}
       </datalist>
       <main className="main">
-        {s.page === 'diagram' ? <DiagramDashboard /> : <TestDashboard />}
+        {s.page === 'admin' && isOrgAdminRole(s.session?.role) ? <AdminDashboard />
+          : s.page === 'diagram' ? <DiagramDashboard /> : <TestDashboard />}
         {showLog && <LogPanel onClose={() => setShowLog(false)} />}
       </main>
       <div className="txn-banner" onClick={() => setShowLog(!showLog)} title="Click to open full change history">

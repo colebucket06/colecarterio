@@ -51,6 +51,15 @@ export const indicatorsFor = (attachments, linkedCases, linkedSteps) => {
   return out
 }
 
+// roles: 'admin' is now "Project Administrator"; 'orgadmin' is the new
+// "Organizational Administrator" (former Administrators were moved here)
+export const ROLE_LABELS = {
+  owner: 'Owner', orgadmin: 'Organizational Administrator',
+  admin: 'Project Administrator', user: 'User', viewer: 'Viewer',
+}
+export const isAdminRole = (r) => ['owner', 'orgadmin', 'admin'].includes(r)
+export const isOrgAdminRole = (r) => ['owner', 'orgadmin'].includes(r)
+
 // path-suggestion configuration with defaults (start needs no input, end no output)
 export const suggestCfg = (vs) => ({ enabled: true, autoConnect: true, flags: true, noInput: ['start'], noOutput: ['end'], ...((vs || {}).pathSuggest || {}) })
 
@@ -317,6 +326,40 @@ export const useStore = create((set, get) => ({
     { email: 'micahferraro@gmail.com', firstName: 'Micah', lastName: 'Ferraro', business: '', role: 'user', password: 'MicahFerraroT3$t123', enabled: true, profileComplete: false, preferredName: 'Micah', company: '', title: '', jobRole: '', about: '', passions: '' },
   ],
   accessRequests: [],
+  // ---- organizations: every non-Owner user belongs to one; each carries
+  // corporate branding (logo) and an optional theme lock (admin-defined
+  // light + dark schemes; members can only switch between the two modes) ----
+  organizations: [], // { id, name, logo: dataUrl|null, themeLock: { locked, light: custom|null, dark: custom|null }, createdAt }
+  addOrganization: (name) => {
+    const org = { id: uid('org'), name: (name || '').trim() || 'New Organization', logo: null,
+      themeLock: { locked: false, light: null, dark: null }, createdAt: now() }
+    set((s) => ({ organizations: [...s.organizations, org] }))
+    get().log('project', 'create', `Created organization "${org.name}"`)
+    return org
+  },
+  updateOrganization: (id, patch) => {
+    set((s) => ({ organizations: s.organizations.map((o) => (o.id === id ? { ...o, ...patch } : o)) }))
+    get().log('project', 'edit', 'Updated organization settings')
+  },
+  deleteOrganization: (id) => {
+    const inUse = get().accounts.some((a) => a.orgId === id)
+    if (inUse) return false
+    set((s) => ({ organizations: s.organizations.filter((o) => o.id !== id) }))
+    get().log('project', 'delete', 'Deleted organization')
+    return true
+  },
+  assignUserOrg: (email, orgId) => {
+    set((s) => ({ accounts: s.accounts.map((a) => (a.email === email ? { ...a, orgId: orgId || null } : a)) }))
+    const org = get().organizations.find((o) => o.id === orgId)
+    get().log('project', 'share', `Assigned ${email} to organization "${org?.name || '—'}"`)
+  },
+  // organization of the signed-in user (Owner floats above organizations)
+  sessionOrg: () => {
+    const ses = get().session
+    if (!ses || ses.role === 'owner') return null
+    const acct = get().accounts.find((a) => a.email === ses.email)
+    return get().organizations.find((o) => o.id === acct?.orgId) || null
+  },
   session: null, // { email, name, role, sharedSuiteIds: null | [suiteId], launched: bool }
   login: (email, password) => {
     const e = (email || '').trim().toLowerCase() // usernames are case-insensitive
@@ -326,7 +369,7 @@ export const useStore = create((set, get) => ({
     if ((acct.password || '') !== password) return 'Incorrect password.'
     // a "user" only gets edit rights on projects where they are owner/editor members
     const member = get().project.members.find((m) => m.email.toLowerCase() === e)
-    const canEdit = ['owner', 'admin'].includes(acct.role) || (acct.role === 'user' && ['owner', 'editor'].includes(member?.role))
+    const canEdit = ['owner', 'orgadmin', 'admin'].includes(acct.role) || (acct.role === 'user' && ['owner', 'editor'].includes(member?.role))
     set({ session: { email: acct.email, name: acct.preferredName || `${acct.firstName} ${acct.lastName}`, role: acct.role, canEdit, sharedSuiteIds: null, launched: false, needsProfile: acct.profileComplete === false },
       currentUser: { ...get().currentUser, name: `${acct.firstName} ${acct.lastName}`, email: acct.email } })
     get().refreshSessionPerms() // includes global community collaborators
@@ -427,7 +470,7 @@ export const useStore = create((set, get) => ({
     if (get().accounts.some((a) => a.email.toLowerCase() === e.toLowerCase())) return 'An account with this email already exists.'
     if (get().invites.some((i) => i.email.toLowerCase() === e.toLowerCase() && ['pending-approval', 'invited'].includes(i.status))) return 'An invitation for this email is already open.'
     const ses = get().session
-    const isAdmin = ['owner', 'admin'].includes(ses?.role)
+    const isAdmin = ['owner', 'orgadmin', 'admin'].includes(ses?.role)
     const inv = { id: uid('inv'), email: e, name: (name || '').trim(), invitedBy: ses?.email || '', invitedByName: ses?.name || 'Unknown',
       communities: communities || [], status: isAdmin ? 'invited' : 'pending-approval', ts: now() }
     set((s) => ({ invites: [inv, ...s.invites] }))
@@ -1658,7 +1701,8 @@ export const useStore = create((set, get) => ({
     const s = get()
     return { schemaVersion: 3, exportedAt: now(), ...get().snapshotProject(),
       projectsHub: s.projectsHub, globalCollaborators: s.globalCollaborators,
-      accounts: s.accounts, accessRequests: s.accessRequests, invites: s.invites }
+      accounts: s.accounts, accessRequests: s.accessRequests, invites: s.invites,
+      organizations: s.organizations, rolesMigrated: true }
   },
   // load a project snapshot into the active workspace (platform state untouched)
   loadSnapshot: (obj) => {
@@ -1688,9 +1732,11 @@ export const useStore = create((set, get) => ({
     set({
       projectsHub: obj.projectsHub || [],
       globalCollaborators: obj.globalCollaborators || [],
-      ...(obj.accounts ? { accounts: obj.accounts } : {}),
+      // migration: former "Administrator" accounts become Organizational Administrators
+      ...(obj.accounts ? { accounts: obj.accounts.map((a) => (a.role === 'admin' && !obj.rolesMigrated ? { ...a, role: 'orgadmin' } : a)) } : {}),
       ...(obj.accessRequests ? { accessRequests: obj.accessRequests } : {}),
       ...(obj.invites ? { invites: obj.invites } : {}),
+      ...(obj.organizations ? { organizations: obj.organizations } : {}),
     })
     get().refreshSessionPerms()
     get().log('project', 'import', `Imported "${obj.project?.name}"${(obj.projectsHub || []).length ? ` + ${obj.projectsHub.length} more project(s)` : ''}`)
@@ -1802,7 +1848,7 @@ export const useStore = create((set, get) => ({
     const e = ses.email.toLowerCase()
     const member = get().project.members.find((m) => m.email.toLowerCase() === e)
     const glob = get().globalCollaborators.find((g) => g.email.toLowerCase() === e)
-    const canEdit = ['owner', 'admin'].includes(ses.role)
+    const canEdit = ['owner', 'orgadmin', 'admin'].includes(ses.role)
       || (ses.role === 'user' && (['owner', 'editor'].includes(member?.role) || glob?.role === 'editor'))
     if (canEdit !== ses.canEdit) set({ session: { ...ses, canEdit } })
   },
